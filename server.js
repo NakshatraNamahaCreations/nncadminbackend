@@ -31,7 +31,7 @@ try {
 try {
   app.use(
     cors({
-      origin: ["http://localhost:5173", "http://localhost:3000"],
+      origin: ["http://localhost:5173", "http://localhost:3000","https://admincrm.nakshatranamahacreations.com"],
       credentials: true,
     })
   );
