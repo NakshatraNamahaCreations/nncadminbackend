@@ -1,6 +1,9 @@
+import mongoose from "mongoose";
 import Lead from "../models/Lead.js";
 
 const STAGES = ["Lead Capture", "Reachable", "Qualified", "Proposal", "Closed"];
+const PRIORITIES = ["Hot", "Warm", "Cold"];
+const SOURCES = ["WhatsApp", "Website", "Call", "Instagram", "Referral"];
 
 const clean = (v) => {
   try {
@@ -10,7 +13,8 @@ const clean = (v) => {
       return "";
     }
     return String(v).trim();
-  } catch {
+  } catch (error) {
+    console.error("clean error:", error);
     return "";
   }
 };
@@ -26,27 +30,84 @@ const toNum = (v, def = 0) => {
 
     const n = Number(v);
     return Number.isFinite(n) ? n : def;
-  } catch {
+  } catch (error) {
+    console.error("toNum error:", error);
     return def;
+  }
+};
+
+const normalizeStage = (value) => {
+  try {
+    const stage = clean(value);
+
+    if (!stage) return "Lead Capture";
+
+    const map = {
+      "Lead Capture": "Lead Capture",
+      Contacted: "Reachable",
+      Reachable: "Reachable",
+      Qualified: "Qualified",
+      Proposal: "Proposal",
+      Won: "Closed",
+      Lost: "Closed",
+      Closed: "Closed",
+    };
+
+    return map[stage] || "Lead Capture";
+  } catch (error) {
+    console.error("normalizeStage error:", error);
+    return "Lead Capture";
+  }
+};
+
+const normalizePriority = (value) => {
+  try {
+    const priority = clean(value);
+    return PRIORITIES.includes(priority) ? priority : "Hot";
+  } catch (error) {
+    console.error("normalizePriority error:", error);
+    return "Hot";
+  }
+};
+
+const normalizeSource = (value) => {
+  try {
+    const source = clean(value);
+    return SOURCES.includes(source) ? source : "WhatsApp";
+  } catch (error) {
+    console.error("normalizeSource error:", error);
+    return "WhatsApp";
   }
 };
 
 const normalizeBantDetails = (input = {}) => {
   try {
     const cleanText = (v) => {
-      if (v == null) return "";
-      if (typeof v === "object") return String(v.text || "").trim();
-      return String(v).trim();
+      try {
+        if (v == null) return "";
+        if (typeof v === "object") return String(v.text || "").trim();
+        return String(v).trim();
+      } catch (error) {
+        console.error("cleanText error:", error);
+        return "";
+      }
     };
 
     const toNumber = (v, def = 0) => {
-      if (v == null || v === "") return def;
-      if (typeof v === "string" && v.includes("/")) {
-        const first = Number(v.split("/")[0]);
-        return Number.isFinite(first) ? first : def;
+      try {
+        if (v == null || v === "") return def;
+
+        if (typeof v === "string" && v.includes("/")) {
+          const first = Number(v.split("/")[0]);
+          return Number.isFinite(first) ? first : def;
+        }
+
+        const n = Number(v);
+        return Number.isFinite(n) ? n : def;
+      } catch (error) {
+        console.error("toNumber error:", error);
+        return def;
       }
-      const n = Number(v);
-      return Number.isFinite(n) ? n : def;
     };
 
     const normalized = {
@@ -60,6 +121,7 @@ const normalizeBantDetails = (input = {}) => {
     };
 
     let score = 0;
+
     if (normalized.budgetMin > 0 || normalized.budgetMax > 0) score += 1;
     if (normalized.authorityName) score += 1;
     if (normalized.need) score += 1;
@@ -84,10 +146,15 @@ const normalizeBantDetails = (input = {}) => {
 const buildStageTimestamps = (currentStage = "Lead Capture", existing = []) => {
   try {
     if (Array.isArray(existing) && existing.length > 0) {
-      return existing;
+      return existing.map((item) => ({
+        label: clean(item?.label),
+        done: Boolean(item?.done),
+        at: item?.at ? new Date(item.at) : null,
+      }));
     }
 
-    const currentIndex = STAGES.indexOf(currentStage);
+    const normalizedStage = normalizeStage(currentStage);
+    const currentIndex = STAGES.indexOf(normalizedStage);
 
     return STAGES.map((label, index) => ({
       label,
@@ -103,7 +170,16 @@ const buildStageTimestamps = (currentStage = "Lead Capture", existing = []) => {
 const buildDefaultFollowups = (existing = []) => {
   try {
     if (Array.isArray(existing) && existing.length > 0) {
-      return existing;
+      return existing.map((item, idx) => ({
+        dayIndex: toNum(item?.dayIndex, idx + 1),
+        title: clean(item?.title),
+        channel: clean(item?.channel) || "Call",
+        status: clean(item?.status) || "Pending",
+        done: Boolean(item?.done),
+        dueDate: item?.dueDate ? new Date(item.dueDate) : null,
+        by: clean(item?.by) || "User",
+        at: item?.at ? new Date(item.at) : new Date(),
+      }));
     }
 
     return [
@@ -174,12 +250,14 @@ const normalizeLeadBeforeSave = (lead) => {
     lead.business = clean(lead.business);
     lead.industry = clean(lead.industry);
     lead.location = clean(lead.location);
-    lead.branch = clean(lead.branch);
-    lead.source = clean(lead.source);
-    lead.stage = clean(lead.stage) || "Lead Capture";
-    lead.priority = clean(lead.priority);
+    lead.requirements = clean(lead.requirements);
+
+    lead.branch = clean(lead.branch) || "Bangalore";
+    lead.source = normalizeSource(lead.source);
+    lead.stage = normalizeStage(lead.stage);
+    lead.priority = normalizePriority(lead.priority);
     lead.rep = clean(lead.rep);
-    lead.days = clean(lead.days);
+    lead.days = clean(lead.days) || "0d";
     lead.value = toNum(lead.value, 0);
 
     lead.bantDetails = normalizeBantDetails(lead.bantDetails || {});
@@ -206,9 +284,9 @@ export const getLeads = async (req, res) => {
     const filter = {};
 
     if (branch && branch !== "All") filter.branch = clean(branch);
-    if (stage && stage !== "All") filter.stage = clean(stage);
-    if (priority && priority !== "All") filter.priority = clean(priority);
-    if (source && source !== "All") filter.source = clean(source);
+    if (stage && stage !== "All") filter.stage = normalizeStage(stage);
+    if (priority && priority !== "All") filter.priority = normalizePriority(priority);
+    if (source && source !== "All") filter.source = normalizeSource(source);
     if (bant && bant !== "All") filter.bant = clean(bant);
     if (rep && rep !== "All") filter.rep = clean(rep);
 
@@ -219,45 +297,156 @@ export const getLeads = async (req, res) => {
         { phone: regex },
         { business: regex },
         { email: regex },
+        { location: regex },
+        { requirements: regex },
       ];
     }
 
     const leads = await Lead.find(filter).sort({ createdAt: -1 });
 
     const data = leads.map((x) => {
-      const obj = x.toObject();
-      obj.docs = Array.isArray(obj.documents) ? obj.documents.length : 0;
-      return obj;
+      try {
+        const obj = x.toObject();
+        obj.docs = Array.isArray(obj.documents) ? obj.documents.length : 0;
+        return obj;
+      } catch (error) {
+        console.error("getLeads map error:", error);
+        return x;
+      }
     });
 
     return res.json({
       success: true,
       count: data.length,
-      total: data.reduce((s, x) => s + (Number(x.value) || 0), 0),
+      total: data.reduce((sum, item) => sum + (Number(item.value) || 0), 0),
       data,
     });
   } catch (err) {
+    console.error("getLeads error:", err);
     return res.status(500).json({
       success: false,
       message: err.message || "Failed to fetch leads",
     });
   }
 };
+export const exportLeadsCsv = async (req, res) => {
+  try {
+    const { branch, stage, priority, source, bant, rep, q } = req.query;
 
+    const filter = {};
+
+    if (branch && branch !== "All") filter.branch = clean(branch);
+    if (stage && stage !== "All") filter.stage = normalizeStage(stage);
+    if (priority && priority !== "All") filter.priority = normalizePriority(priority);
+    if (source && source !== "All") filter.source = normalizeSource(source);
+    if (bant && bant !== "All") filter.bant = clean(bant);
+    if (rep && rep !== "All") filter.rep = clean(rep);
+
+    if (q && clean(q)) {
+      const regex = new RegExp(clean(q), "i");
+      filter.$or = [{ name: regex }, { phone: regex }, { business: regex }, { email: regex }];
+    }
+
+    const leads = await Lead.find(filter).sort({ createdAt: -1 });
+
+    const escapeCsv = (value) => {
+      try {
+        if (value == null) return "";
+        const str = String(value).replace(/"/g, '""');
+        return `"${str}"`;
+      } catch (error) {
+        console.error("escapeCsv error:", error);
+        return `""`;
+      }
+    };
+
+    const headers = [
+      "Name",
+      "Phone",
+      "Email",
+      "Business",
+      "Industry",
+      "Location",
+      "Branch",
+      "Source",
+      "Stage",
+      "Priority",
+      "Value",
+      "Days",
+      "BANT",
+      "Rep",
+      "Documents",
+      "Created At",
+    ];
+
+    const rows = leads.map((lead) => {
+      const docsCount = Array.isArray(lead.documents) ? lead.documents.length : 0;
+
+      return [
+        escapeCsv(lead.name || ""),
+        escapeCsv(lead.phone || ""),
+        escapeCsv(lead.email || ""),
+        escapeCsv(lead.business || ""),
+        escapeCsv(lead.industry || ""),
+        escapeCsv(lead.location || ""),
+        escapeCsv(lead.branch || ""),
+        escapeCsv(lead.source || ""),
+        escapeCsv(lead.stage || ""),
+        escapeCsv(lead.priority || ""),
+        escapeCsv(Number(lead.value || 0)),
+        escapeCsv(lead.days || ""),
+        escapeCsv(lead.bant || ""),
+        escapeCsv(lead.rep || ""),
+        escapeCsv(docsCount),
+        escapeCsv(lead.createdAt ? new Date(lead.createdAt).toISOString() : ""),
+      ].join(",");
+    });
+
+    const csv = [headers.join(","), ...rows].join("\n");
+
+    const fileName = `leads-${new Date().toISOString().slice(0, 10)}.csv`;
+
+    res.setHeader("Content-Type", "text/csv");
+    res.setHeader("Content-Disposition", `attachment; filename=${fileName}`);
+
+    return res.status(200).send(csv);
+  } catch (err) {
+    console.error("exportLeadsCsv error:", err);
+    return res.status(500).json({
+      success: false,
+      message: err.message || "Failed to export leads",
+    });
+  }
+};
 export const getLeadById = async (req, res) => {
   try {
     const { id } = req.params;
 
+    if (!mongoose.Types.ObjectId.isValid(id)) {
+      return res.status(400).json({
+        success: false,
+        message: "Invalid lead id",
+      });
+    }
+
     const lead = await Lead.findById(id);
+
     if (!lead) {
-      return res.status(404).json({ success: false, message: "Lead not found" });
+      return res.status(404).json({
+        success: false,
+        message: "Lead not found",
+      });
     }
 
     const obj = lead.toObject();
     obj.docs = Array.isArray(obj.documents) ? obj.documents.length : 0;
 
-    return res.json({ success: true, data: obj });
+    return res.json({
+      success: true,
+      data: obj,
+    });
   } catch (err) {
+    console.error("getLeadById error:", err);
     return res.status(500).json({
       success: false,
       message: err.message || "Failed to fetch lead",
@@ -276,7 +465,7 @@ export const createLead = async (req, res) => {
       });
     }
 
-    const finalStage = clean(body.stage) || "Lead Capture";
+    const finalStage = normalizeStage(body.stage);
     const bantDetails = normalizeBantDetails(body.bantDetails || {});
     const stageTimestamps = buildStageTimestamps(finalStage, body.stageTimestamps);
     const followups = buildDefaultFollowups(body.followups);
@@ -288,11 +477,12 @@ export const createLead = async (req, res) => {
       business: clean(body.business),
       industry: clean(body.industry),
       location: clean(body.location),
+      requirements: clean(body.requirements),
 
       branch: clean(body.branch) || "Bangalore",
-      source: clean(body.source) || "WhatsApp",
+      source: normalizeSource(body.source),
       stage: finalStage,
-      priority: clean(body.priority) || "Hot",
+      priority: normalizePriority(body.priority),
       value: toNum(body.value, 0),
       days: clean(body.days) || "0d",
       rep: clean(body.rep) || "User",
@@ -316,8 +506,12 @@ export const createLead = async (req, res) => {
     const obj = lead.toObject();
     obj.docs = Array.isArray(obj.documents) ? obj.documents.length : 0;
 
-    return res.status(201).json({ success: true, data: obj });
+    return res.status(201).json({
+      success: true,
+      data: obj,
+    });
   } catch (err) {
+    console.error("createLead error:", err);
     return res.status(500).json({
       success: false,
       message: err.message || "Failed to create lead",
@@ -330,9 +524,20 @@ export const updateLead = async (req, res) => {
     const { id } = req.params;
     const body = req.body || {};
 
+    if (!mongoose.Types.ObjectId.isValid(id)) {
+      return res.status(400).json({
+        success: false,
+        message: "Invalid lead id",
+      });
+    }
+
     const lead = await Lead.findById(id);
+
     if (!lead) {
-      return res.status(404).json({ success: false, message: "Lead not found" });
+      return res.status(404).json({
+        success: false,
+        message: "Lead not found",
+      });
     }
 
     const oldStage = lead.stage;
@@ -343,33 +548,35 @@ export const updateLead = async (req, res) => {
     if (body.business != null) lead.business = clean(body.business);
     if (body.industry != null) lead.industry = clean(body.industry);
     if (body.location != null) lead.location = clean(body.location);
+    if (body.requirements != null) lead.requirements = clean(body.requirements);
 
     if (body.branch != null) lead.branch = clean(body.branch) || "Bangalore";
-    if (body.source != null) lead.source = clean(body.source) || "Referral";
-    if (body.stage != null) lead.stage = clean(body.stage) || "Lead Capture";
-    if (body.priority != null) lead.priority = clean(body.priority) || "Hot";
+    if (body.source != null) lead.source = normalizeSource(body.source);
+    if (body.stage != null) lead.stage = normalizeStage(body.stage);
+    if (body.priority != null) lead.priority = normalizePriority(body.priority);
     if (body.rep != null) lead.rep = clean(body.rep);
 
     if (body.value != null) lead.value = toNum(body.value, lead.value);
     if (body.days != null) lead.days = clean(body.days) || lead.days;
 
     if (body.bantDetails != null) {
-      const next = {
+      const nextBant = {
         ...(lead.bantDetails?.toObject?.() || lead.bantDetails || {}),
         ...(body.bantDetails || {}),
       };
-      lead.bantDetails = normalizeBantDetails(next);
+
+      lead.bantDetails = normalizeBantDetails(nextBant);
       lead.bant = `${lead.bantDetails.score}/4`;
     }
 
     if (Array.isArray(body.stageTimestamps)) {
-      lead.stageTimestamps = body.stageTimestamps;
+      lead.stageTimestamps = buildStageTimestamps(lead.stage, body.stageTimestamps);
     } else if (body.stage != null && oldStage !== lead.stage) {
       lead.stageTimestamps = buildStageTimestamps(lead.stage, []);
     }
 
     if (Array.isArray(body.followups)) {
-      lead.followups = body.followups;
+      lead.followups = buildDefaultFollowups(body.followups);
     }
 
     normalizeLeadBeforeSave(lead);
@@ -386,8 +593,12 @@ export const updateLead = async (req, res) => {
     const obj = lead.toObject();
     obj.docs = Array.isArray(obj.documents) ? obj.documents.length : 0;
 
-    return res.json({ success: true, data: obj });
+    return res.json({
+      success: true,
+      data: obj,
+    });
   } catch (err) {
+    console.error("updateLead error:", err);
     return res.status(500).json({
       success: false,
       message: err.message || "Failed to update lead",
@@ -399,14 +610,30 @@ export const deleteLead = async (req, res) => {
   try {
     const { id } = req.params;
 
+    if (!mongoose.Types.ObjectId.isValid(id)) {
+      return res.status(400).json({
+        success: false,
+        message: "Invalid lead id",
+      });
+    }
+
     const lead = await Lead.findById(id);
+
     if (!lead) {
-      return res.status(404).json({ success: false, message: "Lead not found" });
+      return res.status(404).json({
+        success: false,
+        message: "Lead not found",
+      });
     }
 
     await Lead.deleteOne({ _id: id });
-    return res.json({ success: true, message: "Lead deleted" });
+
+    return res.json({
+      success: true,
+      message: "Lead deleted successfully",
+    });
   } catch (err) {
+    console.error("deleteLead error:", err);
     return res.status(500).json({
       success: false,
       message: err.message || "Failed to delete lead",
@@ -419,13 +646,27 @@ export const addNote = async (req, res) => {
     const { id } = req.params;
     const { text, by } = req.body || {};
 
+    if (!mongoose.Types.ObjectId.isValid(id)) {
+      return res.status(400).json({
+        success: false,
+        message: "Invalid lead id",
+      });
+    }
+
     if (!clean(text)) {
-      return res.status(400).json({ success: false, message: "text required" });
+      return res.status(400).json({
+        success: false,
+        message: "text required",
+      });
     }
 
     const lead = await Lead.findById(id);
+
     if (!lead) {
-      return res.status(404).json({ success: false, message: "Lead not found" });
+      return res.status(404).json({
+        success: false,
+        message: "Lead not found",
+      });
     }
 
     normalizeLeadBeforeSave(lead);
@@ -445,8 +686,12 @@ export const addNote = async (req, res) => {
 
     await lead.save();
 
-    return res.json({ success: true, data: lead.notes });
+    return res.json({
+      success: true,
+      data: lead.notes,
+    });
   } catch (err) {
+    console.error("addNote error:", err);
     return res.status(500).json({
       success: false,
       message: err.message || "Failed to save note",
@@ -459,13 +704,27 @@ export const addComm = async (req, res) => {
     const { id } = req.params;
     const { type, summary, by, durationMin } = req.body || {};
 
+    if (!mongoose.Types.ObjectId.isValid(id)) {
+      return res.status(400).json({
+        success: false,
+        message: "Invalid lead id",
+      });
+    }
+
     if (!clean(summary)) {
-      return res.status(400).json({ success: false, message: "summary required" });
+      return res.status(400).json({
+        success: false,
+        message: "summary required",
+      });
     }
 
     const lead = await Lead.findById(id);
+
     if (!lead) {
-      return res.status(404).json({ success: false, message: "Lead not found" });
+      return res.status(404).json({
+        success: false,
+        message: "Lead not found",
+      });
     }
 
     normalizeLeadBeforeSave(lead);
@@ -487,8 +746,12 @@ export const addComm = async (req, res) => {
 
     await lead.save();
 
-    return res.json({ success: true, data: lead.commLogs });
+    return res.json({
+      success: true,
+      data: lead.commLogs,
+    });
   } catch (err) {
+    console.error("addComm error:", err);
     return res.status(500).json({
       success: false,
       message: err.message || "Failed to save communication log",
@@ -501,6 +764,13 @@ export const addFollowup = async (req, res) => {
     const { id } = req.params;
     const { dayIndex, title, channel, status, dueDate, done, by } = req.body || {};
 
+    if (!mongoose.Types.ObjectId.isValid(id)) {
+      return res.status(400).json({
+        success: false,
+        message: "Invalid lead id",
+      });
+    }
+
     if (!clean(title)) {
       return res.status(400).json({
         success: false,
@@ -509,6 +779,7 @@ export const addFollowup = async (req, res) => {
     }
 
     const lead = await Lead.findById(id);
+
     if (!lead) {
       return res.status(404).json({
         success: false,
@@ -545,6 +816,7 @@ export const addFollowup = async (req, res) => {
       data: lead.followups,
     });
   } catch (err) {
+    console.error("addFollowup error:", err);
     return res.status(500).json({
       success: false,
       message: err.message || "Failed to add follow-up",
@@ -558,13 +830,27 @@ export const uploadDoc = async (req, res) => {
     const { tag, by, name, notes, documentDate } = req.body || {};
     const file = req.file;
 
+    if (!mongoose.Types.ObjectId.isValid(id)) {
+      return res.status(400).json({
+        success: false,
+        message: "Invalid lead id",
+      });
+    }
+
     if (!file) {
-      return res.status(400).json({ success: false, message: "file required" });
+      return res.status(400).json({
+        success: false,
+        message: "file required",
+      });
     }
 
     const lead = await Lead.findById(id);
+
     if (!lead) {
-      return res.status(404).json({ success: false, message: "Lead not found" });
+      return res.status(404).json({
+        success: false,
+        message: "Lead not found",
+      });
     }
 
     normalizeLeadBeforeSave(lead);
@@ -592,8 +878,12 @@ export const uploadDoc = async (req, res) => {
 
     await lead.save();
 
-    return res.json({ success: true, data: lead.documents });
+    return res.json({
+      success: true,
+      data: lead.documents,
+    });
   } catch (err) {
+    console.error("uploadDoc error:", err);
     return res.status(500).json({
       success: false,
       message: err.message || "Failed to upload document",
@@ -614,29 +904,36 @@ export const getPipelineData = async (req, res) => {
     };
 
     for (const item of leads) {
-      const obj = item.toObject();
+      try {
+        const obj = item.toObject();
 
-      const mappedLead = {
-        id: obj._id,
-        name: obj.name || "-",
-        phone: obj.phone || "-",
-        business: obj.business || "-",
-        source: obj.source || "-",
-        priority: obj.priority || "-",
-        value: Number(obj.value || 0),
-        branch: obj.branch || "-",
-        rep: obj.rep || "-",
-        bant: obj.bant || "0/4",
-        docs: Array.isArray(obj.documents) ? obj.documents.length : 0,
-        stage: obj.stage || "Lead Capture",
-        createdAt: obj.createdAt,
-      };
+        const stage = normalizeStage(obj.stage);
 
-      if (!grouped[mappedLead.stage]) {
-        grouped[mappedLead.stage] = [];
+        const mappedLead = {
+          id: obj._id,
+          name: obj.name || "-",
+          phone: obj.phone || "-",
+          business: obj.business || "-",
+          requirements: obj.requirements || "-",
+          source: obj.source || "-",
+          priority: obj.priority || "-",
+          value: Number(obj.value || 0),
+          branch: obj.branch || "-",
+          rep: obj.rep || "-",
+          bant: obj.bant || "0/4",
+          docs: Array.isArray(obj.documents) ? obj.documents.length : 0,
+          stage,
+          createdAt: obj.createdAt,
+        };
+
+        if (!grouped[stage]) {
+          grouped[stage] = [];
+        }
+
+        grouped[stage].push(mappedLead);
+      } catch (error) {
+        console.error("getPipelineData item error:", error);
       }
-
-      grouped[mappedLead.stage].push(mappedLead);
     }
 
     return res.json({
@@ -693,14 +990,16 @@ export const getLeadCalendarData = async (req, res) => {
 
         dayMap[day].count += 1;
         dayMap[day].totalValue += Number(lead.value || 0);
+
         dayMap[day].leads.push({
           id: lead._id,
           name: lead.name || "-",
           phone: lead.phone || "-",
           business: lead.business || "-",
+          requirements: lead.requirements || "-",
           branch: lead.branch || "-",
-          stage: lead.stage || "Lead Capture",
-          priority: lead.priority || "Hot",
+          stage: normalizeStage(lead.stage),
+          priority: normalizePriority(lead.priority),
           rep: lead.rep || "-",
           source: lead.source || "-",
           value: Number(lead.value || 0),
@@ -749,9 +1048,10 @@ export const getLeadCalendarData = async (req, res) => {
           id: lead._id,
           name: lead.name || "-",
           business: lead.business || "-",
+          requirements: lead.requirements || "-",
           rep: lead.rep || "-",
-          stage: lead.stage || "Lead Capture",
-          priority: lead.priority || "Hot",
+          stage: normalizeStage(lead.stage),
+          priority: normalizePriority(lead.priority),
           createdAt: lead.createdAt,
           value: Number(lead.value || 0),
         })),
@@ -759,9 +1059,10 @@ export const getLeadCalendarData = async (req, res) => {
           id: lead._id,
           name: lead.name || "-",
           business: lead.business || "-",
+          requirements: lead.requirements || "-",
           rep: lead.rep || "-",
-          stage: lead.stage || "Lead Capture",
-          priority: lead.priority || "Hot",
+          stage: normalizeStage(lead.stage),
+          priority: normalizePriority(lead.priority),
           createdAt: lead.createdAt,
           value: Number(lead.value || 0),
         })),

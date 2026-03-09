@@ -89,6 +89,7 @@ const LeadSchema = new mongoose.Schema(
     business: { type: String, default: "", trim: true },
     industry: { type: String, default: "", trim: true },
     location: { type: String, default: "", trim: true },
+    requirements: { type: String, default: "", trim: true },
 
     branch: { type: String, default: "Bangalore", trim: true },
     source: { type: String, default: "WhatsApp", trim: true },
