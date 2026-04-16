@@ -1,0 +1,8 @@
+node_modules/
+.env
+.claude/
+uploads/
+*.log
+server.log
+server-err.log
+server_err.log
