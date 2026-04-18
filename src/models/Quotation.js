@@ -80,10 +80,25 @@ const QuotationSchema = new mongoose.Schema(
 // Auto-generate quote number before save
 QuotationSchema.pre("save", async function () {
   if (!this.quoteNumber) {
-    const count = await mongoose.model("Quotation").countDocuments();
-    const pad   = String(count + 1).padStart(4, "0");
+    const year  = new Date().getFullYear();
+    const Model = mongoose.model("Quotation");
     const rev   = this.revisionNumber > 1 ? `-R${this.revisionNumber}` : "";
-    this.quoteNumber = `QT-${new Date().getFullYear()}-${pad}${rev}`;
+
+    // Find the highest existing sequence for this year to avoid duplicates
+    const prefix = `QT-${year}-`;
+    const last = await Model.findOne(
+      { quoteNumber: { $regex: `^${prefix}\\d{4}` } },
+      { quoteNumber: 1 },
+      { sort: { quoteNumber: -1 } }
+    ).lean();
+
+    let next = 1;
+    if (last?.quoteNumber) {
+      const seq = parseInt(last.quoteNumber.replace(prefix, "").split("-")[0], 10);
+      if (!isNaN(seq)) next = seq + 1;
+    }
+
+    this.quoteNumber = `${prefix}${String(next).padStart(4, "0")}${rev}`;
   }
 });
 
