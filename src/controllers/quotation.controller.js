@@ -15,28 +15,40 @@ function calcTotals(lineItems = [], discount = 0, taxPct = 0) {
 // GET /api/quotations
 export async function getQuotations(req, res) {
   try {
-    const { branch, status, q, page = 1, limit = 50 } = req.query;
+    const { branch, status, q, page = 1, limit = 20 } = req.query;
     const filter = {};
     if (branch) filter.branch = branch;
     if (status) filter.status = status;
     if (q?.trim()) {
+      // escape special regex chars to avoid ReDoS and slow scans
+      const escaped = q.trim().replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+      const rx = new RegExp(escaped, "i");
       filter.$or = [
-        { clientName:    new RegExp(q.trim(), "i") },
-        { clientPhone:   new RegExp(q.trim(), "i") },
-        { clientCompany: new RegExp(q.trim(), "i") },
-        { quoteNumber:   new RegExp(q.trim(), "i") },
+        { clientName:    rx },
+        { clientPhone:   rx },
+        { clientCompany: rx },
+        { quoteNumber:   rx },
       ];
     }
 
-    const skip  = (Number(page) - 1) * Number(limit);
-    const total = await Quotation.countDocuments(filter);
-    const data  = await Quotation.find(filter)
-      .sort({ createdAt: -1 })
-      .skip(skip)
-      .limit(Number(limit))
-      .lean();
+    const skip = (Number(page) - 1) * Number(limit);
+    const lim  = Math.min(Number(limit), 50);
 
-    return res.json({ success: true, data, total });
+    // single round-trip: count + data in one aggregation
+    const [result] = await Quotation.aggregate([
+      { $match: filter },
+      { $sort: { createdAt: -1 } },
+      { $facet: {
+          data:  [{ $skip: skip }, { $limit: lim }],
+          total: [{ $count: "count" }],
+      }},
+    ]);
+
+    return res.json({
+      success: true,
+      data:  result.data  || [],
+      total: result.total[0]?.count || 0,
+    });
   } catch (err) {
     console.error("getQuotations error:", err);
     return res.status(500).json({ success: false, message: err.message || "Server error" });
@@ -154,6 +166,7 @@ export async function createQuotation(req, res) {
   } catch (err) {
     console.error("createQuotation error:", err);
     if (err.name === "ValidationError") return res.status(400).json({ success: false, message: err.message });
+    if (err.code === 11000) return res.status(409).json({ success: false, message: "Quote number conflict — please try again." });
     return res.status(500).json({ success: false, message: err.message || "Server error" });
   }
 }

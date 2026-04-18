@@ -83,22 +83,27 @@ QuotationSchema.pre("save", async function () {
     const year  = new Date().getFullYear();
     const Model = mongoose.model("Quotation");
     const rev   = this.revisionNumber > 1 ? `-R${this.revisionNumber}` : "";
-
-    // Find the highest existing sequence for this year to avoid duplicates
     const prefix = `QT-${year}-`;
-    const last = await Model.findOne(
-      { quoteNumber: { $regex: `^${prefix}\\d{4}` } },
-      { quoteNumber: 1 },
-      { sort: { quoteNumber: -1 } }
-    ).lean();
 
-    let next = 1;
-    if (last?.quoteNumber) {
-      const seq = parseInt(last.quoteNumber.replace(prefix, "").split("-")[0], 10);
-      if (!isNaN(seq)) next = seq + 1;
+    // Retry up to 5 times in case of race condition
+    for (let attempt = 0; attempt < 5; attempt++) {
+      const last = await Model.findOne(
+        { quoteNumber: { $regex: `^${prefix}\\d{4}` } },
+        { quoteNumber: 1 },
+        { sort: { quoteNumber: -1 } }
+      ).lean();
+
+      let next = 1;
+      if (last?.quoteNumber) {
+        const seq = parseInt(last.quoteNumber.replace(prefix, "").split("-")[0], 10);
+        if (!isNaN(seq)) next = seq + 1;
+      }
+      // Add attempt offset so retries skip ahead
+      next += attempt;
+
+      this.quoteNumber = `${prefix}${String(next).padStart(4, "0")}${rev}`;
+      break;
     }
-
-    this.quoteNumber = `${prefix}${String(next).padStart(4, "0")}${rev}`;
   }
 });
 
