@@ -20,8 +20,7 @@ export const getEvents = async (req, res) => {
     const query = { date: { $gte: startDate, $lt: endDate } };
     if (type) query.type = type;
 
-    // Hard cap of 500 as a safety net — typical months have 20-60 events.
-    const events = await CalendarEvent.find(query).sort({ date: 1 }).limit(500).lean();
+    const events = await CalendarEvent.find(query).sort({ date: 1 }).lean();
 
     // Group by day of month
     const grouped = {};

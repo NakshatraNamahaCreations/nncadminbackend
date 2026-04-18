@@ -14,21 +14,9 @@ const AttendanceSchema = new mongoose.Schema(
     year:          { type: Number, required: true },
     checkIn:       { type: Date,   default: null },  // full datetime
     checkOut:      { type: Date,   default: null },
-    breaks: [
-      {
-        _id:    false,
-        start:  { type: Date,   required: true },
-        end:    { type: Date,   default: null },
-        reason: { type: String, default: "", trim: true },
-      },
-    ],
-    breakMinutes:      { type: Number, default: 0 }, // total break duration, minutes
-    workingHours:      { type: Number, default: 0 }, // gross decimal hours (checkOut-checkIn)
-    netWorkingHours:   { type: Number, default: 0 }, // productive decimal hours (gross - breaks)
-    overtimeMinutes:   { type: Number, default: 0 }, // net minutes beyond 8h target
-    shortfallMinutes:  { type: Number, default: 0 }, // net minutes below 8h target
-    lateMinutes:       { type: Number, default: 0 },
-    earlyLeaveMin:     { type: Number, default: 0 },
+    workingHours:  { type: Number, default: 0 },     // decimal hours
+    lateMinutes:   { type: Number, default: 0 },
+    earlyLeaveMin: { type: Number, default: 0 },
     status: {
       type: String,
       enum: ["present", "late", "half-day", "absent", "leave", "holiday"],

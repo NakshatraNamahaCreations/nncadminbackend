@@ -44,72 +44,33 @@ function buildShiftDateTime(hhmm, baseDate) {
   return d;
 }
 
-// 8-hour daily productivity target (net of breaks). Employees beyond this accrue
-// overtime; below it, shortfall. Change here if policy changes.
-const PRODUCTIVITY_TARGET_MIN = 8 * 60;
-
 /**
- * Given check-in, check-out, and a list of break intervals, return the total
- * minutes spent on breaks — clamped so a break lying fully outside the working
- * window contributes zero, and partial overlaps are counted only for the part
- * that falls inside [checkIn, checkOut].
+ * Computes derived attendance fields given check-in/out times and employee shift config.
  */
-function computeBreakMinutes(checkIn, checkOut, breaks) {
-  if (!checkIn || !Array.isArray(breaks) || breaks.length === 0) return 0;
-  const windowEnd = checkOut || new Date();
-  let totalMs = 0;
-  for (const b of breaks) {
-    if (!b?.start) continue;
-    const s = new Date(b.start);
-    const e = b.end ? new Date(b.end) : windowEnd; // treat open break as running until now/checkout
-    if (isNaN(s) || isNaN(e)) continue;
-    const clampedStart = Math.max(s.getTime(), checkIn.getTime());
-    const clampedEnd   = Math.min(e.getTime(), windowEnd.getTime());
-    if (clampedEnd > clampedStart) totalMs += clampedEnd - clampedStart;
-  }
-  return Math.round(totalMs / 60000);
-}
-
-/**
- * Computes derived attendance fields given check-in/out times, break list and
- * employee shift config. Status is based on GROSS hours (half-day if < 4h) so
- * break accounting only affects productivity/overtime figures, not the status.
- */
-export function computeAttendanceStatus(checkIn, checkOut, employee, date, breaks = []) {
+export function computeAttendanceStatus(checkIn, checkOut, employee, date) {
   if (!checkIn) {
-    return {
-      status:           "absent",
-      lateMinutes:      0,
-      earlyLeaveMin:    0,
-      workingHours:     0,
-      breakMinutes:     0,
-      netWorkingHours:  0,
-      overtimeMinutes:  0,
-      shortfallMinutes: 0,
-    };
+    return { status: "absent", lateMinutes: 0, earlyLeaveMin: 0, workingHours: 0 };
   }
 
   const shiftStartDt = buildShiftDateTime(employee.shiftStart || "09:30", date);
   const shiftEndDt   = buildShiftDateTime(employee.shiftEnd   || "18:30", date);
   const grace        = employee.gracePeriodMin != null ? employee.gracePeriodMin : 15;
 
+  // Late minutes: how many minutes after (shiftStart + grace) the employee checked in
   const lateMs      = checkIn - shiftStartDt - grace * 60 * 1000;
   const lateMinutes = Math.max(0, Math.round(lateMs / 60000));
 
+  // Early leave: how many minutes before shiftEnd the employee checked out
   let earlyLeaveMin = 0;
   if (checkOut) {
     const earlyMs = shiftEndDt - checkOut;
     earlyLeaveMin = Math.max(0, Math.round(earlyMs / 60000));
   }
 
+  // Working hours (clamp to 0 in case checkOut < checkIn due to data entry error)
   const workingHours = checkOut ? Math.max(0, (checkOut - checkIn) / 3_600_000) : 0;
 
-  const breakMinutes    = computeBreakMinutes(checkIn, checkOut, breaks);
-  const netMinutes      = Math.max(0, Math.round(workingHours * 60) - breakMinutes);
-  const netWorkingHours = netMinutes / 60;
-  const overtimeMinutes  = checkOut ? Math.max(0, netMinutes - PRODUCTIVITY_TARGET_MIN) : 0;
-  const shortfallMinutes = checkOut ? Math.max(0, PRODUCTIVITY_TARGET_MIN - netMinutes) : 0;
-
+  // Determine status
   let status;
   if (workingHours >= 4 && lateMinutes > 0) {
     status = "late";
@@ -125,32 +86,8 @@ export function computeAttendanceStatus(checkIn, checkOut, employee, date, break
     status,
     lateMinutes,
     earlyLeaveMin,
-    workingHours:     Math.round(workingHours * 100) / 100,
-    breakMinutes,
-    netWorkingHours:  Math.round(netWorkingHours * 100) / 100,
-    overtimeMinutes,
-    shortfallMinutes,
+    workingHours: Math.round(workingHours * 100) / 100,
   };
-}
-
-/**
- * Normalises an incoming breaks array. Accepts items like:
- *   { start: "13:00", end: "13:30", reason: "Lunch" }
- *   { start: "2026-04-15T13:00:00Z", end: "...", reason: "..." }
- * Drops entries without a parseable start, drops entries with end < start.
- */
-function buildBreaks(breaksRaw, dateUtcMidnight) {
-  if (!Array.isArray(breaksRaw)) return [];
-  const out = [];
-  for (const b of breaksRaw) {
-    if (!b || !b.start) continue;
-    const s = buildCheckDateTime(b.start, dateUtcMidnight);
-    const e = b.end ? buildCheckDateTime(b.end, dateUtcMidnight) : null;
-    if (!s) continue;
-    if (e && e < s) continue;
-    out.push({ start: s, end: e, reason: (b.reason || "").toString().trim() });
-  }
-  return out;
 }
 
 /**
@@ -356,28 +293,11 @@ export async function getDailyAttendance(req, res) {
     // Aggregate monthly working hours per employee
     const monthlyHoursAgg = await Attendance.aggregate([
       { $match: { employeeId: { $in: empIds }, month, year } },
-      {
-        $group: {
-          _id:              "$employeeId",
-          totalHours:       { $sum: "$workingHours" },
-          totalNetHours:    { $sum: "$netWorkingHours" },
-          totalBreakMin:    { $sum: "$breakMinutes" },
-          totalOvertimeMin: { $sum: "$overtimeMinutes" },
-          totalShortfallMin:{ $sum: "$shortfallMinutes" },
-          daysWorked:       { $sum: { $cond: [{ $gt: ["$workingHours", 0] }, 1, 0] } },
-        },
-      },
+      { $group: { _id: "$employeeId", totalHours: { $sum: "$workingHours" }, daysWorked: { $sum: { $cond: [{ $gt: ["$workingHours", 0] }, 1, 0] } } } },
     ]);
     const monthlyHoursMap = {};
     for (const a of monthlyHoursAgg) {
-      monthlyHoursMap[String(a._id)] = {
-        totalHours:        Math.round(a.totalHours    * 100) / 100,
-        totalNetHours:     Math.round((a.totalNetHours || 0) * 100) / 100,
-        totalBreakMin:     a.totalBreakMin     || 0,
-        totalOvertimeMin:  a.totalOvertimeMin  || 0,
-        totalShortfallMin: a.totalShortfallMin || 0,
-        daysWorked:        a.daysWorked,
-      };
+      monthlyHoursMap[String(a._id)] = { totalHours: Math.round(a.totalHours * 100) / 100, daysWorked: a.daysWorked };
     }
 
     const recordMap = {};
@@ -387,29 +307,21 @@ export async function getDailyAttendance(req, res) {
 
     const result = employees.map((emp) => ({
       employee:     emp,
-      monthlyHours: monthlyHoursMap[String(emp._id)] || {
-        totalHours: 0, totalNetHours: 0, totalBreakMin: 0,
-        totalOvertimeMin: 0, totalShortfallMin: 0, daysWorked: 0,
-      },
+      monthlyHours: monthlyHoursMap[String(emp._id)] || { totalHours: 0, daysWorked: 0 },
       attendance: recordMap[String(emp._id)] || {
-        employeeId:       emp._id,
-        employeeName:     emp.name,
-        employeeCode:     emp.employeeId,
-        branch:           emp.branch,
-        date:             dateUTC,
-        month:            dateUTC.getUTCMonth() + 1,
-        year:             dateUTC.getUTCFullYear(),
-        status:           "absent",
-        checkIn:          null,
-        checkOut:         null,
-        breaks:           [],
-        breakMinutes:     0,
-        workingHours:     0,
-        netWorkingHours:  0,
-        overtimeMinutes:  0,
-        shortfallMinutes: 0,
-        lateMinutes:      0,
-        earlyLeaveMin:    0,
+        employeeId:    emp._id,
+        employeeName:  emp.name,
+        employeeCode:  emp.employeeId,
+        branch:        emp.branch,
+        date:          dateUTC,
+        month:         dateUTC.getUTCMonth() + 1,
+        year:          dateUTC.getUTCFullYear(),
+        status:        "absent",
+        checkIn:       null,
+        checkOut:      null,
+        workingHours:  0,
+        lateMinutes:   0,
+        earlyLeaveMin: 0,
       },
     }));
 
@@ -427,7 +339,6 @@ export async function markAttendance(req, res) {
       date,
       checkIn:   checkInRaw,
       checkOut:  checkOutRaw,
-      breaks:    breaksRaw,
       status:    statusOverride,
       leaveType,
       notes,
@@ -455,47 +366,38 @@ export async function markAttendance(req, res) {
     }
     const checkIn  = buildCheckDateTime(checkInRaw,  dateUTC);
     const checkOut = buildCheckDateTime(checkOutRaw, dateUTC);
-    const breaks   = buildBreaks(breaksRaw, dateUTC);
 
-    let computed = computeAttendanceStatus(checkIn, checkOut, employee, dateUTC, breaks);
+    // Compute derived fields (workingHours, lateMinutes, etc.)
+    let computed = computeAttendanceStatus(checkIn, checkOut, employee, dateUTC);
 
     // Always honour an explicit status override from the UI
     if (statusOverride) {
       computed.status = statusOverride;
       // For non-auto statuses (absent/leave/holiday), zero out time-derived fields
       if (["absent", "leave", "holiday"].includes(statusOverride)) {
-        computed.lateMinutes      = 0;
-        computed.earlyLeaveMin    = 0;
-        computed.workingHours     = 0;
-        computed.breakMinutes     = 0;
-        computed.netWorkingHours  = 0;
-        computed.overtimeMinutes  = 0;
-        computed.shortfallMinutes = 0;
+        computed.lateMinutes   = 0;
+        computed.earlyLeaveMin = 0;
+        computed.workingHours  = 0;
       }
     }
 
     const payload = {
-      employeeId:       employee._id,
-      employeeName:     employee.name,
-      employeeCode:     employee.employeeId,
-      branch:           employee.branch,
-      date:             dateUTC,
-      month:            dateUTC.getUTCMonth() + 1,
-      year:             dateUTC.getUTCFullYear(),
-      checkIn:          checkIn  || null,
-      checkOut:         checkOut || null,
-      breaks:           ["absent","leave","holiday"].includes(computed.status) ? [] : breaks,
-      breakMinutes:     computed.breakMinutes,
-      workingHours:     computed.workingHours,
-      netWorkingHours:  computed.netWorkingHours,
-      overtimeMinutes:  computed.overtimeMinutes,
-      shortfallMinutes: computed.shortfallMinutes,
-      lateMinutes:      computed.lateMinutes,
-      earlyLeaveMin:    computed.earlyLeaveMin,
-      status:           computed.status,
-      leaveType:        leaveType || "",
-      notes:            notes    || "",
-      markedBy:         markedBy || "",
+      employeeId:    employee._id,
+      employeeName:  employee.name,
+      employeeCode:  employee.employeeId,
+      branch:        employee.branch,
+      date:          dateUTC,
+      month:         dateUTC.getUTCMonth() + 1,
+      year:          dateUTC.getUTCFullYear(),
+      checkIn:       checkIn  || null,
+      checkOut:      checkOut || null,
+      workingHours:  computed.workingHours,
+      lateMinutes:   computed.lateMinutes,
+      earlyLeaveMin: computed.earlyLeaveMin,
+      status:        computed.status,
+      leaveType:     leaveType || "",
+      notes:         notes    || "",
+      markedBy:      markedBy || "",
     };
 
     const record = await Attendance.findOneAndUpdate(
@@ -544,44 +446,32 @@ export async function bulkMarkAttendance(req, res) {
 
           const checkIn  = buildCheckDateTime(rec.checkIn,  dateUTC);
           const checkOut = buildCheckDateTime(rec.checkOut, dateUTC);
-          const breaks   = buildBreaks(rec.breaks, dateUTC);
 
-          let computed = computeAttendanceStatus(checkIn, checkOut, emp, dateUTC, breaks);
+          let computed = computeAttendanceStatus(checkIn, checkOut, emp, dateUTC);
           if (rec.status) {
             computed.status = rec.status;
             if (["absent", "leave", "holiday"].includes(rec.status)) {
-              computed.lateMinutes      = 0;
-              computed.earlyLeaveMin    = 0;
-              computed.workingHours     = 0;
-              computed.breakMinutes     = 0;
-              computed.netWorkingHours  = 0;
-              computed.overtimeMinutes  = 0;
-              computed.shortfallMinutes = 0;
+              computed.lateMinutes = 0; computed.earlyLeaveMin = 0; computed.workingHours = 0;
             }
           }
 
           const payload = {
-            employeeId:       emp._id,
-            employeeName:     emp.name,
-            employeeCode:     emp.employeeId,
-            branch:           emp.branch,
-            date:             dateUTC,
-            month:            dateUTC.getUTCMonth() + 1,
-            year:             dateUTC.getUTCFullYear(),
-            checkIn:          checkIn  || null,
-            checkOut:         checkOut || null,
-            breaks:           ["absent","leave","holiday"].includes(computed.status) ? [] : breaks,
-            breakMinutes:     computed.breakMinutes,
-            workingHours:     computed.workingHours,
-            netWorkingHours:  computed.netWorkingHours,
-            overtimeMinutes:  computed.overtimeMinutes,
-            shortfallMinutes: computed.shortfallMinutes,
-            lateMinutes:      computed.lateMinutes,
-            earlyLeaveMin:    computed.earlyLeaveMin,
-            status:           computed.status,
-            leaveType:        rec.leaveType || "",
-            notes:            rec.notes    || "",
-            markedBy:         rec.markedBy || "",
+            employeeId:    emp._id,
+            employeeName:  emp.name,
+            employeeCode:  emp.employeeId,
+            branch:        emp.branch,
+            date:          dateUTC,
+            month:         dateUTC.getUTCMonth() + 1,
+            year:          dateUTC.getUTCFullYear(),
+            checkIn:       checkIn  || null,
+            checkOut:      checkOut || null,
+            workingHours:  computed.workingHours,
+            lateMinutes:   computed.lateMinutes,
+            earlyLeaveMin: computed.earlyLeaveMin,
+            status:        computed.status,
+            leaveType:     rec.leaveType || "",
+            notes:         rec.notes    || "",
+            markedBy:      rec.markedBy || "",
           };
 
           const result = await Attendance.findOneAndUpdate(
@@ -644,53 +534,16 @@ export async function getMonthlyReport(req, res) {
       attByEmp[key][dateKey] = r;
     }
 
-    const workingDaysInMonth = getWorkingDaysInMonth(m, y);
-    const targetHrs = PRODUCTIVITY_TARGET_MIN / 60; // 8 by default
-
     const result = employees.map((emp) => {
       const days = attByEmp[String(emp._id)] || {};
       const vals = Object.values(days);
 
-      const sum   = (key) => vals.reduce((t, r) => t + (r[key] || 0), 0);
-      const count = (s)   => vals.filter((r) => r.status === s).length;
-
-      const present   = count("present");
-      const absent    = count("absent");
-      const late      = count("late");
-      const halfDay   = count("half-day");
-      const leave     = count("leave");
-      const holiday   = count("holiday");
-      const daysWithCheckOut = vals.filter((r) => !!r.checkOut).length;
-
-      const totalNetHours = Math.round(sum("netWorkingHours") * 100) / 100;
-      const expectedHours = Math.round(workingDaysInMonth * targetHrs * 100) / 100;
-      const variance      = Math.round((totalNetHours - expectedHours) * 100) / 100;
-      const avgDailyNet   = daysWithCheckOut
-        ? Math.round((totalNetHours / daysWithCheckOut) * 100) / 100
-        : 0;
-
-      // Attendance counts late/present as 1, half-day as 0.5
-      const attendedDays = present + late + halfDay * 0.5;
-      const attendancePct   = workingDaysInMonth ? Math.round((attendedDays / workingDaysInMonth) * 1000) / 10 : 0;
-      const productivityPct = expectedHours ? Math.round((totalNetHours / expectedHours) * 1000) / 10 : 0;
-
       const summary = {
-        present, absent, late, halfDay, leave, holiday,
-        workingDaysInMonth,
-        daysWithCheckOut,
-        totalHours:        Math.round(sum("workingHours") * 100) / 100,
-        totalNetHours,
-        expectedHours,
-        variance,
-        avgDailyNetHours:  avgDailyNet,
-        targetHoursPerDay: targetHrs,
-        totalBreakMin:     sum("breakMinutes"),
-        totalOvertimeMin:  sum("overtimeMinutes"),
-        totalShortfallMin: sum("shortfallMinutes"),
-        totalLateMin:      sum("lateMinutes"),
-        totalEarlyLeaveMin:sum("earlyLeaveMin"),
-        attendancePct,
-        productivityPct,
+        present:  vals.filter((r) => r.status === "present").length,
+        absent:   vals.filter((r) => r.status === "absent").length,
+        late:     vals.filter((r) => r.status === "late").length,
+        halfDay:  vals.filter((r) => r.status === "half-day").length,
+        leave:    vals.filter((r) => r.status === "leave").length,
       };
 
       return { employee: emp, days, summary };
@@ -699,108 +552,6 @@ export async function getMonthlyReport(req, res) {
     return res.json({ success: true, data: result });
   } catch (err) {
     console.error("getMonthlyReport error:", err);
-    return res.status(500).json({ success: false, message: err.message || "Server error" });
-  }
-}
-
-// ---------------------------------------------------------------------------
-// Celebrations — birthdays + work anniversaries
-// ---------------------------------------------------------------------------
-
-/**
- * Returns today's and upcoming birthdays + work anniversaries for active
- * employees. Anniversaries only fire for employees who have completed at
- * least 1 year (yearsCount >= 1). Query params:
- *   ?date=YYYY-MM-DD  (default: today)
- *   ?upcoming=N       (default 7, max 30 — number of days to look ahead)
- *   ?branch=...       (optional filter)
- */
-export async function getCelebrations(req, res) {
-  try {
-    const { branch } = req.query;
-    const today = req.query.date ? new Date(req.query.date) : new Date();
-    today.setHours(0, 0, 0, 0);
-    if (isNaN(today.getTime())) {
-      return res.status(400).json({ success: false, message: "Invalid date" });
-    }
-    const upcomingDays = Math.min(
-      Math.max(parseInt(req.query.upcoming || "7", 10) || 7, 0),
-      30,
-    );
-
-    const filter = { isActive: true };
-    if (branch) filter.branch = branch;
-    const employees = await Employee.find(filter)
-      .select("name employeeId branch designation department dateOfBirth joinedDate")
-      .lean();
-
-    // Returns the next occurrence of (month, day) on/after `from`. Reads
-    // month/day in UTC because dateOfBirth/joinedDate are stored as UTC midnight.
-    const nextOccurrence = (date, from) => {
-      const m = date.getUTCMonth();
-      const d = date.getUTCDate();
-      let next = new Date(from.getFullYear(), m, d);
-      next.setHours(0, 0, 0, 0);
-      if (next < from) {
-        next = new Date(from.getFullYear() + 1, m, d);
-        next.setHours(0, 0, 0, 0);
-      }
-      return next;
-    };
-
-    const birthdaysToday        = [];
-    const birthdaysUpcoming     = [];
-    const anniversariesToday    = [];
-    const anniversariesUpcoming = [];
-
-    for (const emp of employees) {
-      const base = {
-        _id: emp._id, employeeId: emp.employeeId, name: emp.name,
-        branch: emp.branch, designation: emp.designation, department: emp.department,
-      };
-
-      if (emp.dateOfBirth) {
-        const dob = new Date(emp.dateOfBirth);
-        if (!isNaN(dob)) {
-          const occursOn = nextOccurrence(dob, today);
-          const daysAway = Math.round((occursOn - today) / 86400000);
-          const turning  = occursOn.getFullYear() - dob.getUTCFullYear();
-          const item = { ...base, dateOfBirth: emp.dateOfBirth, occursOn, daysAway, turning };
-          if (daysAway === 0)        birthdaysToday.push(item);
-          else if (daysAway <= upcomingDays) birthdaysUpcoming.push(item);
-        }
-      }
-
-      if (emp.joinedDate) {
-        const joined = new Date(emp.joinedDate);
-        if (!isNaN(joined)) {
-          const occursOn   = nextOccurrence(joined, today);
-          const daysAway   = Math.round((occursOn - today) / 86400000);
-          const yearsCount = occursOn.getFullYear() - joined.getUTCFullYear();
-          if (yearsCount >= 1) {
-            const item = { ...base, joinedDate: emp.joinedDate, occursOn, daysAway, yearsCount };
-            if (daysAway === 0)        anniversariesToday.push(item);
-            else if (daysAway <= upcomingDays) anniversariesUpcoming.push(item);
-          }
-        }
-      }
-    }
-
-    const byDate = (a, b) => a.occursOn - b.occursOn;
-    birthdaysUpcoming.sort(byDate);
-    anniversariesUpcoming.sort(byDate);
-
-    return res.json({
-      success: true,
-      data: {
-        date: today,
-        windowDays: upcomingDays,
-        birthdaysToday, birthdaysUpcoming,
-        anniversariesToday, anniversariesUpcoming,
-      },
-    });
-  } catch (err) {
-    console.error("getCelebrations error:", err);
     return res.status(500).json({ success: false, message: err.message || "Server error" });
   }
 }

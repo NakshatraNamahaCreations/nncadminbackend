@@ -63,8 +63,6 @@ EnquirySchema.index({ createdAt: -1 });
 EnquirySchema.index({ services: 1 });
 EnquirySchema.index({ source: 1, createdAt: -1 });  // source filter + date sort
 EnquirySchema.index({ branch: 1, createdAt: -1 });  // branch filter + date sort
-EnquirySchema.index({ branch: 1, status: 1, createdAt: -1 }); // branch + status filter + date sort (main list view)
-EnquirySchema.index({ status: 1, createdAt: -1 });  // status-only filter + date sort
 
 // Text index for search
 EnquirySchema.index(

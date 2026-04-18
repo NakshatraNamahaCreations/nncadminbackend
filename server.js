@@ -5,12 +5,7 @@ import dotenv from "dotenv";
 import mongoose from "mongoose";
 import path from "path";
 import fs from "fs";
-import dns from "dns";
 import { fileURLToPath } from "url";
-
-// Node's c-ares picks up 127.0.0.1 on this machine and fails SRV lookups for Atlas.
-// Force public resolvers so mongodb+srv:// works regardless of local DNS config.
-dns.setServers(["8.8.8.8", "1.1.1.1"]);
 import compression from "compression";
 import rateLimit from "express-rate-limit";
 import helmet from "helmet";
@@ -75,6 +70,8 @@ app.use(compression({ level: 6, threshold: 1024 }));
 /* ─── CORS ─────────────────────────────────────────────────── */
 const allowedOrigins = [
   "https://admincrm.nakshatranamahacreations.com",
+  "https://nakshatranamahacreations.com",
+  "https://www.nakshatranamahacreations.com",
 ];
 const corsOptions = {
   origin: (origin, cb) => {

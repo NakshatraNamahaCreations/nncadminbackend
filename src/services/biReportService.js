@@ -89,21 +89,15 @@ async function collectData() {
     Lead.aggregate([{$match:{$expr:{$not:closedExpr},value:{$gt:0}}},{$group:{_id:null,total:{$sum:"$value"},count:{$sum:1}}}]),
     MonthlyTarget.findOne({year,month}).lean(),
     SalaryRecord.aggregate([{$match:{year}},{$group:{_id:null,total:{$sum:"$netSalary"}}}]),
-    // Aggregate fund balances in Mongo instead of shipping every transaction to Node.
-    // Returns at most 4 rows (one per fundId) regardless of history length.
-    FundTransaction.aggregate([
-      { $group: {
-          _id: "$fundId",
-          balance: { $sum: { $cond: [{ $eq: ["$type", "deposit"] }, "$amount", { $multiply: ["$amount", -1] }] } },
-      }},
-    ]),
+    FundTransaction.find({}).sort({date:-1}).lean(),
   ]);
 
-  // Compute fund balances (aggregation returns [{_id, balance}, ...])
-  const fundBalances = { buffer: 0, emergency: 0, tax: 0, growth: 0 };
-  for (const row of fundTx) {
-    if (row._id in fundBalances) fundBalances[row._id] = Math.max(0, row.balance || 0);
-  }
+  // Compute fund balances
+  const fundBalances = {buffer:0,emergency:0,tax:0,growth:0};
+  ["buffer","emergency","tax","growth"].forEach(fid=>{
+    const txs = fundTx.filter(t=>t.fundId===fid);
+    fundBalances[fid] = Math.max(0,txs.reduce((s,t)=>s+(t.type==="deposit"?t.amount:-t.amount),0));
+  });
 
   const revenue     = revMonth[0]?.total||0;
   const opex        = expMonth[0]?.total||0;

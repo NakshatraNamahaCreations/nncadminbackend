@@ -13,8 +13,6 @@ import {
   bulkMarkAttendance,
   // Monthly report
   getMonthlyReport,
-  // Celebrations
-  getCelebrations,
   // Salary
   generateSalary,
   generateBulkSalary,
@@ -44,9 +42,6 @@ router.post("/mark-bulk",  bulkMarkAttendance);
 
 // ── Monthly report ───────────────────────────────────────────────────────────
 router.get("/monthly", getMonthlyReport);
-
-// ── Celebrations (birthdays + anniversaries) ────────────────────────────────
-router.get("/celebrations", getCelebrations);
 
 // ── Salary routes (specific before :id) ─────────────────────────────────────
 router.post("/salary/generate",       generateSalary);
