@@ -1,7 +1,7 @@
 import mongoose from "mongoose";
 import fs from "fs";
 import path from "path";
-import Lead from "../models/Lead.js";
+import Lead, { PROJECT_STAGES } from "../models/Lead.js";
 import Rep from "../models/Rep.js";
 import Document from "../models/Document.js";
 import TodayPlanTask from "../models/TodayPlanTask.js";
@@ -565,7 +565,7 @@ const getRepDetails = async (body = {}) => {
 
 export const getLeads = async (req, res) => {
   try {
-    const { branch, stage, priority, source, bant, rep, q, status } = req.query;
+    const { branch, stage, priority, source, bant, rep, q, status, projectStage } = req.query;
     const page     = Math.max(1, parseInt(req.query.page  || "1",  10));
     const limit    = Math.min(200, Math.max(1, parseInt(req.query.limit || "50", 10)));
     const skip     = (page - 1) * limit;
@@ -574,6 +574,8 @@ export const getLeads = async (req, res) => {
 
     if (branch && branch !== "All") filter.branch = clean(branch);
     if (stage && stage !== "All") filter.stage = normalizeStage(stage);
+    if (projectStage === "none") filter.projectStage = { $in: ["", null] };
+    else if (projectStage && projectStage !== "All") filter.projectStage = clean(projectStage);
     if (priority && priority !== "All") filter.priority = normalizePriority(priority);
     if (source && source !== "All") filter.source = clean(source);
     if (bant && bant !== "All") filter.bant = clean(bant);
@@ -838,6 +840,9 @@ export const createLead = async (req, res) => {
       value: toNum(body.value, 0),
       dealValue: toNum(body.dealValue, toNum(body.value, 0)),
       days: clean(body.days) || "0d",
+      gstApplicable: Boolean(body.gstApplicable),
+      gstRate: toNum(body.gstRate, 18) || 18,
+      projectStage: PROJECT_STAGES.includes(clean(body.projectStage)) ? clean(body.projectStage) : "",
 
       rep: repInfo.repName || "User",
       repName: repInfo.repName || "User",
@@ -985,6 +990,23 @@ export const updateLead = async (req, res) => {
     if (body.projectCompleted != null) lead.projectCompleted = Boolean(body.projectCompleted);
     if (body.projectCompletionDate != null) lead.projectCompletionDate = body.projectCompletionDate || null;
 
+    // Project delivery stage — keeps the onboarded / completed fields in step
+    const oldProjectStage = lead.projectStage || "";
+    if (body.projectStage != null) {
+      const ps = clean(body.projectStage);
+      if (ps && !PROJECT_STAGES.includes(ps)) {
+        return res.status(400).json({ success: false, message: "Invalid project stage" });
+      }
+      lead.projectStage = ps;
+      if (ps && ps !== "On Hold" && !lead.onboardedDate) lead.onboardedDate = new Date();
+      if (ps === "Project Completed") {
+        lead.projectCompleted = true;
+        if (!lead.projectCompletionDate) lead.projectCompletionDate = new Date();
+      } else if (ps && oldProjectStage === "Project Completed" && body.projectCompleted == null) {
+        lead.projectCompleted = false;
+      }
+    }
+
     if (body.gstApplicable != null) lead.gstApplicable = Boolean(body.gstApplicable);
     if (body.gstRate != null) lead.gstRate = Number(body.gstRate) || 18;
 
@@ -1035,9 +1057,14 @@ export const updateLead = async (req, res) => {
 
     normalizeLeadBeforeSave(lead);
 
+    const projectStageChanged = (lead.projectStage || "") !== oldProjectStage;
     lead.history.unshift({
-      title: oldStage !== lead.stage ? "Stage Updated" : "Lead Updated",
-      meta: oldStage !== lead.stage ? `${oldStage} → ${lead.stage}` : "",
+      title: oldStage !== lead.stage ? "Stage Updated"
+        : projectStageChanged ? "Project Stage Updated"
+        : "Lead Updated",
+      meta: oldStage !== lead.stage ? `${oldStage} → ${lead.stage}`
+        : projectStageChanged ? `${oldProjectStage || "Not started"} → ${lead.projectStage || "Not started"}`
+        : "",
       by: clean(body.by) || lead.repName || lead.rep || "System",
       at: new Date(),
     });

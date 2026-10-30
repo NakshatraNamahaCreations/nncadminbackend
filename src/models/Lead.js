@@ -1,5 +1,17 @@
 import mongoose from "mongoose";
 
+// Project delivery stages, in order
+export const PROJECT_STAGES = [
+  "Onboarded",
+  "Requirement Gathering",
+  "Design",
+  "Development in Progress",
+  "Testing / Review",
+  "Deployed / Live",
+  "Project Completed",
+  "On Hold",
+];
+
 const StageTimestampSchema = new mongoose.Schema(
   {
     label: { type: String, default: "" },
@@ -131,6 +143,9 @@ const LeadSchema = new mongoose.Schema(
     onboardedDate: { type: Date, default: null },
     projectCompleted: { type: Boolean, default: false },
     projectCompletionDate: { type: Date, default: null },
+    // Delivery progress once the deal is won (separate from the sales `stage`,
+    // which pipeline/analytics/leaderboard depend on). "" = not started.
+    projectStage: { type: String, enum: ["", ...PROJECT_STAGES], default: "" },
     days: { type: String, default: "0d", trim: true },
     rep: { type: String, default: "", trim: true },
     repId: { type: mongoose.Schema.Types.ObjectId, ref: "Rep", default: null },
@@ -177,6 +192,7 @@ LeadSchema.index({ source: 1, stage: 1 });                    // source conversi
 LeadSchema.index({ repName: 1, stage: 1 });                   // rep leaderboard
 LeadSchema.index({ value: -1, advanceReceived: 1 });          // payment alerts (outstanding balance)
 LeadSchema.index({ onboardedDate: 1, projectCompleted: 1 });  // project tracking
+LeadSchema.index({ projectStage: 1, createdAt: -1 });         // Projects page stage filter
 LeadSchema.index({ projectCompleted: 1, approvalStatus: 1 }); // approval watchlist
 LeadSchema.index({ advanceReceivedDate: -1 });                 // monthly payment health
 LeadSchema.index({ updatedAt: -1 });                           // recent activity feed

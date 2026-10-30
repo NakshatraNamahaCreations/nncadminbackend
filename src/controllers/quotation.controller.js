@@ -234,9 +234,10 @@ export async function updateQuotation(req, res) {
 }
 
 // PATCH /api/quotations/:id/status
+// Body: { status, comment? } — an optional comment is saved alongside the change
 export async function updateStatus(req, res) {
   try {
-    const { status } = req.body;
+    const { status, comment } = req.body;
     const VALID = ["draft", "sent", "under_negotiation", "approved", "rejected", "final", "converted", "expired"];
     if (!VALID.includes(status)) return res.status(400).json({ success: false, message: "Invalid status" });
 
@@ -251,10 +252,50 @@ export async function updateStatus(req, res) {
     // Auto-add system note
     q.negotiationHistory.push({ note: `Status changed to "${status}"`, by: req.user?.name || "Admin", type: "system", at: new Date() });
 
+    if (String(comment || "").trim()) {
+      q.comments.push({ text: String(comment).trim(), by: req.user?.name || "Admin", at: new Date() });
+    }
+
     await q.save();
     return res.json({ success: true, data: q });
   } catch (err) {
     console.error("updateStatus error:", err);
+    return res.status(500).json({ success: false, message: err.message || "Server error" });
+  }
+}
+
+// POST /api/quotations/:id/comments  — add an internal comment
+export async function addComment(req, res) {
+  try {
+    const text = String(req.body.text || "").trim();
+    if (!text) return res.status(400).json({ success: false, message: "Comment is required" });
+
+    const q = await Quotation.findById(req.params.id);
+    if (!q) return res.status(404).json({ success: false, message: "Quotation not found" });
+
+    q.comments.push({ text, by: req.body.by || req.user?.name || "Admin", at: new Date() });
+    await q.save();
+    return res.json({ success: true, data: q });
+  } catch (err) {
+    console.error("addComment error:", err);
+    return res.status(500).json({ success: false, message: err.message || "Server error" });
+  }
+}
+
+// DELETE /api/quotations/:id/comments/:commentId
+export async function deleteComment(req, res) {
+  try {
+    const q = await Quotation.findById(req.params.id);
+    if (!q) return res.status(404).json({ success: false, message: "Quotation not found" });
+
+    const c = q.comments.id(req.params.commentId);
+    if (!c) return res.status(404).json({ success: false, message: "Comment not found" });
+
+    c.deleteOne();
+    await q.save();
+    return res.json({ success: true, data: q });
+  } catch (err) {
+    console.error("deleteComment error:", err);
     return res.status(500).json({ success: false, message: err.message || "Server error" });
   }
 }

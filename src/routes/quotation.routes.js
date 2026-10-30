@@ -9,6 +9,8 @@ import {
   sendQuotationEmail,
   updateStatus,
   addNegotiationNote,
+  addComment,
+  deleteComment,
   createRevision,
   convertToProforma,
 } from "../controllers/quotation.controller.js";
@@ -26,6 +28,8 @@ router.delete("/:id",             deleteQuotation);
 router.post("/:id/send",          sendQuotationEmail);
 router.patch("/:id/status",       updateStatus);
 router.post("/:id/negotiate",     addNegotiationNote);
+router.post("/:id/comments",      addComment);
+router.delete("/:id/comments/:commentId", deleteComment);
 router.post("/:id/revise",        createRevision);
 router.post("/:id/convert-to-proforma", convertToProforma);
 

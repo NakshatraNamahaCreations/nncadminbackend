@@ -1,5 +1,5 @@
 import mongoose from "mongoose";
-import Enquiry from "../models/Enquiry.js";
+import Enquiry, { PROPOSAL_STATUSES } from "../models/Enquiry.js";
 import sendEmail from "../utils/sendEmail.js";
 
 const escapeRegex = (str) => String(str).replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
@@ -56,10 +56,28 @@ function dateRangeFilter(dateRange) {
   return null;
 }
 
+// Helper: build follow-up filter from a named preset.
+//   today    → follow-up due today
+//   overdue  → follow-up date already passed
+//   upcoming → follow-up after today
+// Closed enquiries (won/lost) are excluded from all of them.
+function followUpFilter(followUp) {
+  const now        = new Date();
+  const todayStart = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+  const todayEnd   = new Date(now.getFullYear(), now.getMonth(), now.getDate() + 1);
+
+  if (followUp === "today")     return { $gte: todayStart, $lt: todayEnd };
+  if (followUp === "overdue")   return { $lt: todayStart };
+  if (followUp === "upcoming")  return { $gte: todayEnd };
+  if (followUp === "scheduled") return { $ne: null };   // any follow-up date set
+  return null;
+}
+
 // Helper: build common filter object from query params
 function buildFilter(query) {
-  const { branch, status, source, service, landingPage, q, dateRange, site } = query;
-  const filter = {};
+  const { branch, status, source, service, landingPage, q, dateRange, site, followUp, includeConverted } = query;
+  // Converted enquiries live in Projects (Leads) — hide them unless asked for
+  const filter = includeConverted === "true" ? {} : { convertedToLead: { $ne: true } };
 
   if (branch)      filter.branch = branch;
   if (status)      filter.status = status;
@@ -90,8 +108,17 @@ function buildFilter(query) {
   const dr = dateRangeFilter(dateRange);
   if (dr) filter.createdAt = dr;
 
+  const fu = followUpFilter(followUp);
+  if (fu) {
+    filter.followUpDate = fu;
+    if (!status) filter.status = { $nin: ["won", "lost"] };
+  }
+
   return filter;
 }
+
+// Legacy docs have no `seen` field — treat them as already seen
+const withSeen = (e) => ({ ...e, seen: e.seen !== false });
 
 // ---------------------------------------------------------------------------
 // GET /api/enquiries
@@ -103,15 +130,17 @@ export async function getEnquiries(req, res) {
     const limit = Math.min(200, Math.max(1, parseInt(req.query.limit, 10) || 50));
     const filter = buildFilter(req.query);
 
+    // Follow-up views are sorted by the follow-up date (soonest first)
+    const sort  = req.query.followUp ? { followUpDate: 1, createdAt: -1 } : { createdAt: -1 };
     const skip  = (page - 1) * limit;
     const total = await Enquiry.countDocuments(filter);
     const enquiries = await Enquiry.find(filter)
-      .sort({ createdAt: -1 })
+      .sort(sort)
       .skip(skip)
       .limit(limit)
       .lean();
 
-    return res.json({ success: true, data: enquiries, total });
+    return res.json({ success: true, data: enquiries.map(withSeen), total });
   } catch (err) {
     console.error("getEnquiries error:", err);
     return res.status(500).json({ success: false, message: err.message || "Server error" });
@@ -188,6 +217,9 @@ export async function getEnquiryStats(req, res) {
       matchStage.site = site;
     }
 
+    // Follow-up counts must match the list, which hides converted enquiries
+    const open = { convertedToLead: { $ne: true }, status: { $nin: ["won", "lost"] } };
+
     const now        = new Date();
     const startOfMonth = new Date(now.getFullYear(), now.getMonth(), 1);
     const todayStart   = new Date(now.getFullYear(), now.getMonth(), now.getDate());
@@ -214,9 +246,44 @@ export async function getEnquiryStats(req, res) {
             {
               $match: {
                 followUpDate: { $gte: todayStart, $lt: todayEnd },
-                status: { $nin: ["won", "lost"] },
+                ...open,
               },
             },
+            { $count: "count" },
+          ],
+          overdueFollowUps: [
+            {
+              $match: {
+                followUpDate: { $lt: todayStart },
+                ...open,
+              },
+            },
+            { $count: "count" },
+          ],
+          upcomingFollowUps: [
+            {
+              $match: {
+                followUpDate: { $gte: todayEnd },
+                ...open,
+              },
+            },
+            { $count: "count" },
+          ],
+          unseen: [
+            { $match: { seen: false, convertedToLead: { $ne: true } } },
+            { $count: "count" },
+          ],
+          // Dashboard cards on the All Leads page
+          converted: [
+            { $match: { convertedToLead: true } },
+            { $count: "count" },
+          ],
+          lost: [
+            { $match: { status: "lost", convertedToLead: { $ne: true } } },
+            { $count: "count" },
+          ],
+          scheduledFollowUps: [
+            { $match: { followUpDate: { $ne: null }, ...open } },
             { $count: "count" },
           ],
         },
@@ -254,7 +321,13 @@ export async function getEnquiryStats(req, res) {
         conversionRate,
         byService,
         newThisMonth:   agg.newThisMonth[0]?.count    || 0,
-        todayFollowUps: agg.todayFollowUps[0]?.count  || 0,
+        todayFollowUps:    agg.todayFollowUps[0]?.count    || 0,
+        overdueFollowUps:  agg.overdueFollowUps[0]?.count  || 0,
+        upcomingFollowUps: agg.upcomingFollowUps[0]?.count || 0,
+        unseen:            agg.unseen[0]?.count            || 0,
+        converted:          agg.converted[0]?.count          || 0,
+        lost:               agg.lost[0]?.count               || 0,
+        scheduledFollowUps: agg.scheduledFollowUps[0]?.count || 0,
       },
     });
   } catch (err) {
@@ -275,7 +348,7 @@ export async function getEnquiryById(req, res) {
     if (!enquiry) {
       return res.status(404).json({ success: false, message: "Enquiry not found" });
     }
-    return res.json({ success: true, data: enquiry });
+    return res.json({ success: true, data: withSeen(enquiry) });
   } catch (err) {
     console.error("getEnquiryById error:", err);
     return res.status(500).json({ success: false, message: err.message || "Server error" });
@@ -313,6 +386,7 @@ export async function createEnquiry(req, res) {
       name:   String(name).trim(),
       phone:  phoneTrimmed,
       branch,
+      seen:   true, // created by staff inside the CRM — no "new" alert needed
       activityLog: [
         {
           action: "Created",
@@ -471,8 +545,127 @@ export async function deleteEnquiry(req, res) {
 }
 
 // ---------------------------------------------------------------------------
+// PATCH /api/enquiries/:id/seen
+// ---------------------------------------------------------------------------
+export async function markSeen(req, res) {
+  try {
+    if (!isValidObjectId(req.params.id)) {
+      return res.status(400).json({ success: false, message: "Invalid enquiry ID" });
+    }
+    const enquiry = await Enquiry.findByIdAndUpdate(
+      req.params.id,
+      { $set: { seen: true } },
+      { new: true }
+    ).lean();
+    if (!enquiry) {
+      return res.status(404).json({ success: false, message: "Enquiry not found" });
+    }
+    return res.json({ success: true, data: enquiry });
+  } catch (err) {
+    console.error("markSeen error:", err);
+    return res.status(500).json({ success: false, message: err.message || "Server error" });
+  }
+}
+
+// ---------------------------------------------------------------------------
+// POST /api/enquiries/:id/proposal
+// Body: { status, comment }
+// Sets the proposal status and records the comment against it.
+// ---------------------------------------------------------------------------
+export async function updateProposal(req, res) {
+  try {
+    if (!isValidObjectId(req.params.id)) {
+      return res.status(400).json({ success: false, message: "Invalid enquiry ID" });
+    }
+
+    const { status, comment, by } = req.body;
+    if (!PROPOSAL_STATUSES.includes(status)) {
+      return res.status(400).json({ success: false, message: "Invalid proposal status" });
+    }
+    const text = String(comment || "").trim();
+
+    const existing = await Enquiry.findById(req.params.id).select("proposalStatus").lean();
+    if (!existing) {
+      return res.status(404).json({ success: false, message: "Enquiry not found" });
+    }
+    if (status === existing.proposalStatus && !text) {
+      return res.status(400).json({ success: false, message: "Add a comment or change the status" });
+    }
+
+    const who = by || req.user?.name || "Admin";
+    const at  = new Date();
+    const enquiry = await Enquiry.findByIdAndUpdate(
+      req.params.id,
+      {
+        $set:  { proposalStatus: status },
+        $push: {
+          proposalComments: { status, text, by: who, at },
+          activityLog: {
+            action: `Proposal: ${status}`,
+            note:   text,
+            by:     who,
+            at,
+          },
+        },
+      },
+      { new: true, runValidators: true }
+    ).lean();
+
+    return res.json({ success: true, data: withSeen(enquiry) });
+  } catch (err) {
+    console.error("updateProposal error:", err);
+    if (err.name === "ValidationError") {
+      return res.status(400).json({ success: false, message: err.message });
+    }
+    return res.status(500).json({ success: false, message: err.message || "Server error" });
+  }
+}
+
+// ---------------------------------------------------------------------------
+// POST /api/enquiries/:id/lost
+// Body: { lost: true, reason }  → mark as lost (reason is logged)
+//       { lost: false }         → reopen (status back to "contacted")
+// ---------------------------------------------------------------------------
+export async function setLost(req, res) {
+  try {
+    if (!isValidObjectId(req.params.id)) {
+      return res.status(400).json({ success: false, message: "Invalid enquiry ID" });
+    }
+    const markLost = req.body.lost !== false;
+    const reason   = String(req.body.reason || "").trim();
+    const who      = req.body.by || req.user?.name || "Admin";
+
+    const enquiry = await Enquiry.findByIdAndUpdate(
+      req.params.id,
+      {
+        $set:  { status: markLost ? "lost" : "contacted" },
+        $push: {
+          activityLog: {
+            action: markLost ? "Marked as Lost" : "Reopened",
+            note:   markLost ? reason : "Lead reopened",
+            by:     who,
+            at:     new Date(),
+          },
+        },
+      },
+      { new: true, runValidators: true }
+    ).lean();
+
+    if (!enquiry) {
+      return res.status(404).json({ success: false, message: "Enquiry not found" });
+    }
+    return res.json({ success: true, data: withSeen(enquiry) });
+  } catch (err) {
+    console.error("setLost error:", err);
+    return res.status(500).json({ success: false, message: err.message || "Server error" });
+  }
+}
+
+// ---------------------------------------------------------------------------
 // POST /api/enquiries/:id/activity
-// Body: { action, note, by }
+// Body: { action, note, by, followUpDate? }
+// followUpDate (optional) schedules the next follow-up in the same step;
+// pass null/"" to clear it.
 // ---------------------------------------------------------------------------
 export async function addActivity(req, res) {
   try {
@@ -480,25 +673,36 @@ export async function addActivity(req, res) {
       return res.status(400).json({ success: false, message: "Invalid enquiry ID" });
     }
 
-    const { action, note, by } = req.body;
-    if (!note || !String(note).trim()) {
-      return res.status(400).json({ success: false, message: "Activity note is required" });
+    const { action, note, by, followUpDate } = req.body;
+    const actionText  = String(action || "").trim();
+    const noteText    = String(note   || "").trim();
+    const hasFollowUp = followUpDate !== undefined;
+    if (!actionText && !noteText && !hasFollowUp) {
+      return res.status(400).json({ success: false, message: "Action or note is required" });
     }
 
-    const enquiry = await Enquiry.findByIdAndUpdate(
-      req.params.id,
-      {
-        $push: {
-          activityLog: {
-            action: action || "Note",
-            note:   note   || "",
-            by:     by     || "Admin",
-            at:     new Date(),
-          },
-        },
-      },
-      { new: true }
-    );
+    const who    = by || req.user?.name || "Admin";
+    const update = {};
+    let entry    = { action: actionText || "Note", note: noteText, by: who, at: new Date() };
+
+    if (hasFollowUp) {
+      const next = followUpDate ? new Date(followUpDate) : null;
+      if (next && isNaN(next.getTime())) {
+        return res.status(400).json({ success: false, message: "Invalid follow-up date" });
+      }
+      update.$set = { followUpDate: next };
+      // One log entry: the schedule change, with the note appended
+      const scheduleText = next ? `Follow-up scheduled for ${next.toDateString()}` : "Follow-up date removed";
+      entry = {
+        action: actionText || (next ? "Follow-up Scheduled" : "Follow-up Cleared"),
+        note:   noteText ? `${scheduleText} — ${noteText}` : scheduleText,
+        by:     who,
+        at:     new Date(),
+      };
+    }
+    update.$push = { activityLog: entry };
+
+    const enquiry = await Enquiry.findByIdAndUpdate(req.params.id, update, { new: true });
 
     if (!enquiry) {
       return res.status(404).json({ success: false, message: "Enquiry not found" });

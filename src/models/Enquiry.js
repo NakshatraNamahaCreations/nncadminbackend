@@ -10,6 +10,19 @@ const ActivityLogSchema = new mongoose.Schema(
   { _id: false }
 );
 
+const PROPOSAL_STATUSES = ["preparing", "sent", "negotiation", "accepted", "rejected"];
+
+// Each proposal update: the status at that time + the comment written with it
+const ProposalCommentSchema = new mongoose.Schema(
+  {
+    status: { type: String, enum: PROPOSAL_STATUSES, required: true },
+    text:   { type: String, default: "", trim: true },
+    by:     { type: String, default: "Admin" },
+    at:     { type: Date,   default: Date.now },
+  },
+  { _id: true }
+);
+
 const EnquirySchema = new mongoose.Schema(
   {
     name:    { type: String, required: true, trim: true },
@@ -56,6 +69,12 @@ const EnquirySchema = new mongoose.Schema(
     convertedAt:       { type: Date,    default: null },
     landingPage:       { type: String, default: "", trim: true },
     gstApplicable:     { type: Boolean, default: false },
+    // false = not yet opened in the CRM (drives the "new" glow + tab badges).
+    // Legacy docs without this field are treated as seen.
+    seen:              { type: Boolean, default: false },
+    // Proposal tracking ("" = no proposal yet)
+    proposalStatus:    { type: String, enum: ["", ...PROPOSAL_STATUSES], default: "" },
+    proposalComments:  { type: [ProposalCommentSchema], default: [] },
     activityLog:       { type: [ActivityLogSchema], default: [] },
   },
   { timestamps: true }
@@ -72,6 +91,7 @@ EnquirySchema.index({ services: 1 });
 EnquirySchema.index({ source: 1, createdAt: -1 });  // source filter + date sort
 EnquirySchema.index({ branch: 1, createdAt: -1 });  // branch filter + date sort
 EnquirySchema.index({ site: 1, createdAt: -1 });    // site (NNC / NNC Digital) tab filter + date sort
+EnquirySchema.index({ site: 1, seen: 1 });          // unseen badge counts
 
 // Text index for search
 EnquirySchema.index(
@@ -81,4 +101,5 @@ EnquirySchema.index(
 
 const Enquiry = mongoose.models.Enquiry || mongoose.model("Enquiry", EnquirySchema);
 
+export { PROPOSAL_STATUSES };
 export default Enquiry;

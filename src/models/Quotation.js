@@ -20,6 +20,16 @@ const NegotiationEntrySchema = new mongoose.Schema(
   { _id: false }
 );
 
+// Internal team comments on a proposal (not shown to the client)
+const CommentSchema = new mongoose.Schema(
+  {
+    text: { type: String, required: true, trim: true },
+    by:   { type: String, default: "Admin", trim: true },
+    at:   { type: Date, default: Date.now },
+  },
+  { _id: true }
+);
+
 const QuotationSchema = new mongoose.Schema(
   {
     quoteNumber:    { type: String, unique: true, trim: true },
@@ -64,6 +74,7 @@ const QuotationSchema = new mongoose.Schema(
     terms:  { type: String, default: "", trim: true },
 
     negotiationHistory: { type: [NegotiationEntrySchema], default: [] },
+    comments:           { type: [CommentSchema], default: [] },
 
     proformaId: { type: mongoose.Schema.Types.ObjectId, ref: "ProformaInvoice", default: null },
 

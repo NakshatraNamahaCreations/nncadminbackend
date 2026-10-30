@@ -8,6 +8,9 @@ import {
   updateEnquiry,
   deleteEnquiry,
   addActivity,
+  markSeen,
+  updateProposal,
+  setLost,
   convertToLead,
 } from "../controllers/enquiry.controller.js";
 import { protect } from "../middleware/auth.middleware.js";
@@ -27,7 +30,10 @@ router.get("/:id",     getEnquiryById);
 router.put("/:id",     updateEnquiry);
 router.delete("/:id",  deleteEnquiry);
 
+router.patch("/:id/seen",    markSeen);
 router.post("/:id/activity", addActivity);
+router.post("/:id/proposal", updateProposal);
+router.post("/:id/lost",     setLost);
 router.post("/:id/convert",  convertToLead);
 
 export default router;
