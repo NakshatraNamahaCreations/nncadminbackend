@@ -146,6 +146,7 @@ const LeadSchema = new mongoose.Schema(
     // Delivery progress once the deal is won (separate from the sales `stage`,
     // which pipeline/analytics/leaderboard depend on). "" = not started.
     projectStage: { type: String, enum: ["", ...PROJECT_STAGES], default: "" },
+    developers:   [{ type: mongoose.Schema.Types.ObjectId, ref: "Developer" }], // assigned team
     days: { type: String, default: "0d", trim: true },
     rep: { type: String, default: "", trim: true },
     repId: { type: mongoose.Schema.Types.ObjectId, ref: "Rep", default: null },
@@ -193,6 +194,7 @@ LeadSchema.index({ repName: 1, stage: 1 });                   // rep leaderboard
 LeadSchema.index({ value: -1, advanceReceived: 1 });          // payment alerts (outstanding balance)
 LeadSchema.index({ onboardedDate: 1, projectCompleted: 1 });  // project tracking
 LeadSchema.index({ projectStage: 1, createdAt: -1 });         // Projects page stage filter
+LeadSchema.index({ developers: 1 });                           // developer → projects
 LeadSchema.index({ projectCompleted: 1, approvalStatus: 1 }); // approval watchlist
 LeadSchema.index({ advanceReceivedDate: -1 });                 // monthly payment health
 LeadSchema.index({ updatedAt: -1 });                           // recent activity feed

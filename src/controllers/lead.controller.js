@@ -565,7 +565,7 @@ const getRepDetails = async (body = {}) => {
 
 export const getLeads = async (req, res) => {
   try {
-    const { branch, stage, priority, source, bant, rep, q, status, projectStage } = req.query;
+    const { branch, stage, priority, source, bant, rep, q, status, projectStage, developer } = req.query;
     const page     = Math.max(1, parseInt(req.query.page  || "1",  10));
     const limit    = Math.min(200, Math.max(1, parseInt(req.query.limit || "50", 10)));
     const skip     = (page - 1) * limit;
@@ -576,6 +576,7 @@ export const getLeads = async (req, res) => {
     if (stage && stage !== "All") filter.stage = normalizeStage(stage);
     if (projectStage === "none") filter.projectStage = { $in: ["", null] };
     else if (projectStage && projectStage !== "All") filter.projectStage = clean(projectStage);
+    if (developer && mongoose.Types.ObjectId.isValid(developer)) filter.developers = developer;
     if (priority && priority !== "All") filter.priority = normalizePriority(priority);
     if (source && source !== "All") filter.source = clean(source);
     if (bant && bant !== "All") filter.bant = clean(bant);

@@ -37,6 +37,8 @@ import websiteEnquiryRoutes from "./src/routes/websiteEnquiry.routes.js";
 import ownerDeskRoutes from "./src/routes/ownerDesk.routes.js";
 import credentialRoutes from "./src/routes/credential.routes.js";
 import integrationRoutes from "./src/routes/integration.routes.js";
+import { projectExtraRoutes, recurringServiceRoutes } from "./src/routes/projectBilling.routes.js";
+import developerRoutes from "./src/routes/developer.routes.js";
 import { initReportScheduler } from "./src/services/reportScheduler.js";
 import { getDashboardSummary } from "./src/services/dashboard.service.js";
 
@@ -145,6 +147,9 @@ app.use("/api/proforma-invoices", proformaInvoiceRoutes);
 app.use("/api/owner-desk",       ownerDeskRoutes);
 app.use("/api/credentials",      credentialRoutes);
 app.use("/api/integrations",     integrationRoutes);
+app.use("/api/project-extras",   projectExtraRoutes);
+app.use("/api/recurring-services", recurringServiceRoutes);
+app.use("/api/developers",       developerRoutes);
 
 
 

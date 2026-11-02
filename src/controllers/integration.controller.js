@@ -60,17 +60,30 @@ function mergeSecrets(existing = [], incoming = []) {
 
 // ---------------------------------------------------------------------------
 // GET /api/integrations?lead=<projectId>  → one project's integrations
+// GET /api/integrations[?category=&status=] → all projects' integrations,
+//     each with its project's name (for the sidebar Integrations page)
 // ---------------------------------------------------------------------------
 export async function getIntegrations(req, res) {
   try {
-    const { lead } = req.query;
-    if (!lead || !isValidId(lead)) return res.status(400).json({ success: false, message: "Valid project id (lead) is required" });
+    const { lead, category, status } = req.query;
 
-    const docs = await Integration.find({ lead })
+    if (lead) {
+      if (!isValidId(lead)) return res.status(400).json({ success: false, message: "Invalid project id" });
+      const docs = await Integration.find({ lead }).sort({ createdAt: -1 }).lean();
+      return res.json({ success: true, data: docs.map(toSafe) });
+    }
+
+    const filter = {};
+    if (category && INTEGRATION_CATEGORIES.includes(category)) filter.category = category;
+    if (status && INTEGRATION_STATUSES.includes(status)) filter.status = status;
+
+    const docs = await Integration.find(filter)
+      .populate("lead", "name business company phone projectStage")
       .sort({ createdAt: -1 })
       .lean();
 
-    return res.json({ success: true, data: docs.map(toSafe) });
+    // Skip integrations whose project was deleted
+    return res.json({ success: true, data: docs.filter(d => d.lead).map(toSafe) });
   } catch (err) {
     return sendError(res, err, "getIntegrations");
   }
