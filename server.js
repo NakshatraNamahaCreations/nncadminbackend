@@ -39,6 +39,8 @@ import credentialRoutes from "./src/routes/credential.routes.js";
 import integrationRoutes from "./src/routes/integration.routes.js";
 import { projectExtraRoutes, recurringServiceRoutes } from "./src/routes/projectBilling.routes.js";
 import developerRoutes from "./src/routes/developer.routes.js";
+import salesDeskRoutes from "./src/routes/salesDesk.routes.js";
+import seoTeamRoutes from "./src/routes/seoTeam.routes.js";
 import { initReportScheduler } from "./src/services/reportScheduler.js";
 import { getDashboardSummary } from "./src/services/dashboard.service.js";
 
@@ -150,6 +152,8 @@ app.use("/api/integrations",     integrationRoutes);
 app.use("/api/project-extras",   projectExtraRoutes);
 app.use("/api/recurring-services", recurringServiceRoutes);
 app.use("/api/developers",       developerRoutes);
+app.use("/api/sales-desk",       salesDeskRoutes);
+app.use("/api/seo",              seoTeamRoutes);
 
 
 

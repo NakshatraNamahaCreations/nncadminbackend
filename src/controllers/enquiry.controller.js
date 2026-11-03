@@ -1,6 +1,7 @@
 import mongoose from "mongoose";
 import Enquiry, { PROPOSAL_STATUSES } from "../models/Enquiry.js";
 import sendEmail from "../utils/sendEmail.js";
+import { sendCustomEmail } from "../services/emailService.js";
 
 const escapeRegex = (str) => String(str).replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 
@@ -775,6 +776,29 @@ export async function convertToLead(req, res) {
     if (err.name === "ValidationError") {
       return res.status(400).json({ success: false, message: err.message });
     }
+    return res.status(500).json({ success: false, message: err.message || "Server error" });
+  }
+}
+
+
+// POST /api/enquiries/:id/send-email  { subject, body } — email the enquiry and log it
+export async function sendEnquiryEmail(req, res) {
+  try {
+    if (!isValidObjectId(req.params.id)) {
+      return res.status(400).json({ success: false, message: "Invalid enquiry ID" });
+    }
+    const subject = String(req.body?.subject || "").trim();
+    const body    = String(req.body?.body || "").trim();
+    if (!subject || !body) return res.status(400).json({ success: false, message: "Subject and body are required" });
+    const enq = await Enquiry.findById(req.params.id);
+    if (!enq) return res.status(404).json({ success: false, message: "Enquiry not found" });
+    if (!enq.email) return res.status(400).json({ success: false, message: "This enquiry has no email address" });
+    await sendCustomEmail({ name: enq.name, email: enq.email, subject, body });
+    enq.activityLog.push({ action: "Email", note: subject, by: req.user?.name || "Admin", at: new Date() });
+    await enq.save();
+    return res.json({ success: true, message: `Email sent to ${enq.email}` });
+  } catch (err) {
+    console.error("sendEnquiryEmail error:", err);
     return res.status(500).json({ success: false, message: err.message || "Server error" });
   }
 }

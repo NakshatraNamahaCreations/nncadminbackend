@@ -12,6 +12,7 @@ import {
   updateProposal,
   setLost,
   convertToLead,
+  sendEnquiryEmail,
 } from "../controllers/enquiry.controller.js";
 import { protect } from "../middleware/auth.middleware.js";
 
@@ -35,5 +36,6 @@ router.post("/:id/activity", addActivity);
 router.post("/:id/proposal", updateProposal);
 router.post("/:id/lost",     setLost);
 router.post("/:id/convert",  convertToLead);
+router.post("/:id/send-email", sendEnquiryEmail);
 
 export default router;
