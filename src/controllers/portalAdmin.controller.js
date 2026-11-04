@@ -1,7 +1,7 @@
 import mongoose from "mongoose";
 import bcrypt from "bcryptjs";
 import crypto from "crypto";
-import { PortalAccount, PortalWork, PortalTask, PortalMeeting, PortalBlocker, PortalDay, PortalSetting, PORTAL_ROLES, notify } from "../models/Portal.js";
+import { PortalAccount, PortalWork, PortalTask, PortalMeeting, PortalBlocker, PortalDay, PortalAttendance, PortalSetting, PORTAL_ROLES, notify } from "../models/Portal.js";
 import { SeoClient, SeoMember } from "../models/SeoTeam.js";
 import Lead from "../models/Lead.js";
 import Developer from "../models/Developer.js";
@@ -176,13 +176,14 @@ export async function teamWork(req, res) {
   try {
     const to = isDay(req.query.to) ? req.query.to : new Date().toISOString().slice(0, 10);
     const from = isDay(req.query.from) ? req.query.from : to;
-    const [accs, work, days, blockers] = await Promise.all([
+    const [accs, work, days, blockers, attendance] = await Promise.all([
       PortalAccount.find().select("name role status").lean(),
       PortalWork.find({ date: { $gte: from, $lte: to } }).sort({ date: -1, createdAt: -1 }).limit(3000).lean(),
       PortalDay.find({ date: { $gte: from, $lte: to } }).lean(),
       PortalBlocker.find({ resolved: false }).sort({ createdAt: -1 }).limit(200).lean(),
+      PortalAttendance.find({ date: { $gte: from, $lte: to } }).lean(),
     ]);
-    return res.json({ success: true, data: { accounts: accs.map(a => ({ id: String(a._id), name: a.name, role: a.role, status: a.status })), work, days, blockers } });
+    return res.json({ success: true, data: { accounts: accs.map(a => ({ id: String(a._id), name: a.name, role: a.role, status: a.status })), work, days, blockers, attendance } });
   } catch (err) { return fail(res, err, "teamWork"); }
 }
 
@@ -197,9 +198,18 @@ export async function resolveBlocker(req, res) {
 
 export async function allMeetings(req, res) {
   try {
-    const M = await PortalMeeting.find().sort({ date: -1, time: -1 }).limit(300).populate("account", "name role").lean();
+    // photos are left out of the list to keep it fast; GET /admin/meetings/:id has them
+    const M = await PortalMeeting.find().select("-images").sort({ date: -1, time: -1 }).limit(300).populate("account", "name role").lean();
     return res.json({ success: true, data: M });
   } catch (err) { return fail(res, err, "allMeetings"); }
+}
+export async function oneMeeting(req, res) {
+  try {
+    if (!isId(req.params.id)) return res.status(400).json({ success: false, message: "Invalid id" });
+    const m = await PortalMeeting.findById(req.params.id).populate("account", "name role").lean();
+    if (!m) return res.status(404).json({ success: false, message: "Not found" });
+    return res.json({ success: true, data: m });
+  } catch (err) { return fail(res, err, "oneMeeting"); }
 }
 
 // POST /api/portal/admin/tasks { account, title, due, refName }

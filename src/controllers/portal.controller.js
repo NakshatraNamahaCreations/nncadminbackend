@@ -1,12 +1,12 @@
 import mongoose from "mongoose";
 import bcrypt from "bcryptjs";
 import {
-  PortalAccount, PortalWork, PortalTask, PortalMeeting, PortalBlocker, PortalDay, PortalSetting, PORTAL_ROLES,
+  PortalAccount, PortalWork, PortalTask, PortalMeeting, PortalBlocker, PortalDay, PortalAttendance, PortalSetting, PORTAL_ROLES,
 } from "../models/Portal.js";
 import { SeoMember, SeoClient, SeoWork, SeoAdsDay, SeoKeyword } from "../models/SeoTeam.js";
 import Developer from "../models/Developer.js";
 import Lead from "../models/Lead.js";
-import { signPortalToken } from "../middleware/portalAuth.js";
+import { signPortalToken, forgetPortal } from "../middleware/portalAuth.js";
 import { notify } from "../models/Portal.js";
 import { notifyProjectTeam } from "./portalComms.controller.js";
 
@@ -121,6 +121,7 @@ export async function updateMe(req, res) {
     const name = str(req.body?.name), phone = str(req.body?.phone);
     if (!name || digits(phone).length < 10) return res.status(400).json({ success: false, message: "Enter your name and a 10 digit mobile number" });
     const acc = await PortalAccount.findByIdAndUpdate(req.portal._id, { name, phone }, { new: true }).lean();
+    forgetPortal(acc._id);
     if (acc.seoMember) await SeoMember.updateOne({ _id: acc.seoMember }, { name, phone });
     if (acc.developer) await Developer.updateOne({ _id: acc.developer }, { name, phone });
     return res.json({ success: true, data: publicAccount(acc) });
@@ -204,7 +205,8 @@ export async function addWork(req, res) {
     const b = req.body || {}, acc = req.portal;
     const date = isDay(b.date) ? b.date : null;
     if (!date) return res.status(400).json({ success: false, message: "Pick a date" });
-    if (await PortalDay.exists({ account: acc._id, date })) return res.status(400).json({ success: false, message: "That day is already submitted" });
+    // After the day is submitted, new entries are saved as extra work (beyond the normal day)
+    const extra = !!(await PortalDay.exists({ account: acc._id, date }));
     const type = str(b.type);
     if (!type) return res.status(400).json({ success: false, message: "Pick what you worked on" });
     const ref = await resolveRef(acc, b.refType, b.refId);
@@ -215,6 +217,7 @@ export async function addWork(req, res) {
     const out = [];
     for (const it of items) {
       const meta = it.meta && typeof it.meta === "object" ? it.meta : {};
+      if (extra) meta.extra = true;
       if (type === "bug") {
         const last = await PortalWork.find({ type: "bug" }).sort({ createdAt: -1 }).limit(1).lean();
         const n = last.length ? (parseInt(String(last[0].meta?.bug || "BUG-100").slice(4), 10) || 100) + 1 : 101;
@@ -249,7 +252,7 @@ export async function deleteWork(req, res) {
     if (!isId(req.params.id)) return res.status(400).json({ success: false, message: "Invalid id" });
     const w = await PortalWork.findOne({ _id: req.params.id, account: req.portal._id });
     if (!w) return res.status(404).json({ success: false, message: "Not found" });
-    if (await PortalDay.exists({ account: req.portal._id, date: w.date })) return res.status(400).json({ success: false, message: "That day is already submitted" });
+    if (!w.meta?.extra && await PortalDay.exists({ account: req.portal._id, date: w.date })) return res.status(400).json({ success: false, message: "That day is already submitted" });
     if (w.seoWork) await SeoWork.deleteOne({ _id: w.seoWork });
     await w.deleteOne();
     return res.json({ success: true });
@@ -288,7 +291,59 @@ export async function developersList(req, res) {
     return res.json({ success: true, data: L.map(a => ({ id: String(a._id), name: a.name, role: a.role })) });
   } catch (err) { return fail(res, err, "developersList"); }
 }
-// PATCH /api/portal/bugs/:id { action: fix|verify|reopen, url, hrs, note }
+// Files sent with a bug or a comment: [{ url, name, type, size }] from POST /uploads
+const cleanFiles = (L) => (Array.isArray(L) ? L : []).slice(0, 10)
+  .filter(f => f && /^\/uploads\/docs\/[\w.-]+$/.test(String(f.url || "")))
+  .map(f => ({ url: f.url, name: str(f.name).slice(0, 120) || "file", type: str(f.type).slice(0, 80), size: num(f.size) }));
+const BUG_STATUS = { open: "Open", progress: "In progress", info: "Needs more info", fixed: "Fixed", notbug: "Not a bug", verified: "Verified", reopened: "Reopened" };
+
+// POST /api/portal/uploads (multipart "file") → { url, name, type, size }
+export async function uploadFile(req, res) {
+  if (!req.file) return res.status(400).json({ success: false, message: "Choose a file" });
+  return res.status(201).json({ success: true, data: { url: `/uploads/docs/${req.file.filename}`, name: req.file.originalname, type: req.file.mimetype, size: req.file.size } });
+}
+
+// POST /api/portal/bugs/batch { refId, assign, items: [{ title, steps, sev, mod, mins, url, files }] }
+// A tester sends many bugs to one developer at once; the developer gets one notification
+export async function sendBugs(req, res) {
+  try {
+    const me = req.portal, b = req.body || {};
+    const ref = await resolveRef(me, "project", b.refId);
+    if (!ref) return res.status(400).json({ success: false, message: "Pick one of your projects" });
+    const dev = isId(b.assign) ? await PortalAccount.findOne({ _id: b.assign, status: "active" }).select("name").lean() : null;
+    if (!dev) return res.status(400).json({ success: false, message: "Pick the developer" });
+    const items = (Array.isArray(b.items) ? b.items : []).slice(0, 100).filter(i => str(i.title));
+    if (!items.length) return res.status(400).json({ success: false, message: "Add at least one bug" });
+    const date = isDay(b.date) ? b.date : new Date().toISOString().slice(0, 10);
+    const locked = await PortalDay.exists({ account: me._id, date });
+    const last = await PortalWork.find({ type: "bug" }).sort({ createdAt: -1 }).limit(1).lean();
+    let n = last.length ? (parseInt(String(last[0].meta?.bug || "BUG-100").slice(4), 10) || 100) : 100;
+    const docs = items.map(it => {
+      const mins = Math.max(0, Math.round(num(it.mins)));
+      return {
+        account: me._id, date, type: "bug", ...ref, title: str(it.title).slice(0, 300), url: str(it.url),
+        hrs: locked ? 0 : Math.round((mins / 60) * 100) / 100,          // the tester's time, on today's timesheet
+        meta: {
+          bug: `BUG-${++n}`, status: "open", sev: ["High", "Medium", "Low"].includes(it.sev) ? it.sev : "Medium",
+          mod: str(it.mod), steps: str(it.steps).slice(0, 3000), mins, files: cleanFiles(it.files),
+          assign: String(dev._id), assignName: dev.name, comments: [],
+        },
+      };
+    });
+    const saved = await PortalWork.insertMany(docs);
+    const high = docs.filter(d => d.meta.sev === "High").length;
+    await notify(dev._id, {
+      kind: "bug", title: docs.length > 1 ? `${docs.length} bugs from ${me.name}${high ? ` · ${high} high` : ""}` : `${docs[0].meta.bug} assigned to you · ${docs[0].meta.sev}`,
+      text: `${docs.length > 1 ? docs.map(d => d.meta.bug).join(", ") : docs[0].title} · ${ref.refName}`, link: "/bugs", from: me.name,
+    });
+    return res.status(201).json({ success: true, data: saved });
+  } catch (err) { return fail(res, err, "sendBugs"); }
+}
+
+// PATCH /api/portal/bugs/:id
+//   { action: fix|verify|reopen, url, hrs, note }
+//   { action: status, status: open|progress|info|fixed|notbug, note, files }  (assigned developer)
+//   { action: comment, text, files }                                         (tester or developer)
 export async function bugAction(req, res) {
   try {
     if (!isId(req.params.id)) return res.status(400).json({ success: false, message: "Invalid id" });
@@ -296,6 +351,32 @@ export async function bugAction(req, res) {
     const bug = await PortalWork.findOne({ _id: req.params.id, type: "bug" });
     if (!bug) return res.status(404).json({ success: false, message: "Bug not found" });
     const meta = { ...bug.meta };
+    const isDev = meta.assign === String(me._id), isTester = String(bug.account) === String(me._id);
+    const where = bug.refName ? ` · ${bug.refName}` : "";
+    const say = (text, extra = {}) => { meta.comments = [...(meta.comments || []), { by: String(me._id), name: me.name, text, files: cleanFiles(b.files), at: new Date(), ...extra }]; };
+    if (b.action === "comment" || b.action === "status") {
+      if (!isDev && !isTester) return res.status(403).json({ success: false, message: "This bug is not yours" });
+      let title;
+      if (b.action === "status") {
+        if (!isDev) return res.status(403).json({ success: false, message: "Only the assigned developer can change the status" });
+        if (!["open", "progress", "info", "fixed", "notbug"].includes(b.status)) return res.status(400).json({ success: false, message: "Unknown status" });
+        meta.status = b.status;
+        say(str(b.note), { status: b.status });
+        title = `${meta.bug} ${b.status === "fixed" ? `fixed by ${me.name}, please verify` : `· ${BUG_STATUS[b.status]} (${me.name})`}`;
+        if (b.status === "fixed" && num(b.hrs) > 0) {
+          await PortalWork.create({ account: me._id, date: new Date().toISOString().slice(0, 10), type: "bugfix", refType: bug.refType, refId: bug.refId, refName: bug.refName, title: `Fixed ${meta.bug}: ${bug.title}`, url: str(b.url), hrs: num(b.hrs), meta: { bug: meta.bug } });
+        }
+      } else {
+        if (!str(b.text) && !cleanFiles(b.files).length) return res.status(400).json({ success: false, message: "Write a comment" });
+        say(str(b.text).slice(0, 3000));
+        title = `${me.name} commented on ${meta.bug}`;
+      }
+      bug.meta = meta; bug.markModified("meta");
+      await bug.save();
+      const to = isDev ? bug.account : meta.assign;
+      if (to && String(to) !== String(me._id)) await notify(to, { kind: b.status === "fixed" ? "bug_fixed" : "bug", title, text: `${str(b.note || b.text) || bug.title}${where}`, link: "/bugs", from: me.name });
+      return res.json({ success: true, data: bug });
+    }
     if (b.action === "fix") {
       if (meta.assign !== String(me._id)) return res.status(403).json({ success: false, message: "This bug is not assigned to you" });
       meta.status = "fixed"; meta.note = str(b.note);
@@ -305,10 +386,11 @@ export async function bugAction(req, res) {
       if (String(bug.account) !== String(me._id)) return res.status(403).json({ success: false, message: "Only the tester who raised it can do this" });
       meta.status = b.action === "verify" ? "verified" : "reopened";
       if (b.action === "reopen") meta.note = str(b.note);
+      say(str(b.note), { status: meta.status });
     } else return res.status(400).json({ success: false, message: "Unknown action" });
+    if (b.action === "fix") say(str(b.note), { status: "fixed" });
     bug.meta = meta; bug.markModified("meta");
     await bug.save();
-    const where = bug.refName ? ` · ${bug.refName}` : "";
     if (b.action === "fix") await notify(bug.account, { kind: "bug_fixed", title: `${meta.bug} fixed by ${me.name}, please verify`, text: `${bug.title}${where}${meta.note ? ` · ${meta.note}` : ""}`, link: "/bugs", from: me.name });
     if (b.action === "verify") await notify(meta.assign, { kind: "bug_verified", title: `${meta.bug} verified by ${me.name}`, text: `${bug.title}${where}`, link: "/bugs", from: me.name });
     if (b.action === "reopen") await notify(meta.assign, { kind: "bug_reopened", title: `${meta.bug} reopened by ${me.name}`, text: `${meta.note || bug.title}${where}`, link: "/bugs", from: me.name });
@@ -382,25 +464,72 @@ export async function submitDay(req, res) {
   } catch (err) { return fail(res, err, "submitDay"); }
 }
 
+/* ───────── check in / check out ───────── */
+
+// GET /api/portal/attendance?date= → today's check in and check out times
+export async function getAttendance(req, res) {
+  try {
+    const date = isDay(req.query.date) ? req.query.date : new Date().toISOString().slice(0, 10);
+    const a = await PortalAttendance.findOne({ account: req.portal._id, date }).lean();
+    return res.json({ success: true, data: a || { date, sessions: [] } });
+  } catch (err) { return fail(res, err, "getAttendance"); }
+}
+// POST /api/portal/attendance { action: in|out, date } → the time is taken on the server
+export async function markAttendance(req, res) {
+  try {
+    const b = req.body || {};
+    const date = isDay(b.date) ? b.date : new Date().toISOString().slice(0, 10);
+    const a = await PortalAttendance.findOne({ account: req.portal._id, date }) || new PortalAttendance({ account: req.portal._id, date, sessions: [] });
+    const open = a.sessions.find(s => !s.out);
+    if (b.action === "in") {
+      if (open) return res.status(400).json({ success: false, message: "You are already checked in" });
+      a.sessions.push({ in: new Date() });
+    } else if (b.action === "out") {
+      if (!open) return res.status(400).json({ success: false, message: "Check in first" });
+      open.out = new Date();
+    } else return res.status(400).json({ success: false, message: "Unknown action" });
+    a.markModified("sessions");
+    await a.save();
+    return res.json({ success: true, data: a });
+  } catch (err) { return fail(res, err, "markAttendance"); }
+}
+
 /* ───────── meetings ───────── */
 
 const meetingFields = (b) => {
   const images = (Array.isArray(b.images) ? b.images : []).filter(u => /^data:image\/(png|jpe?g|webp|gif);base64,/.test(String(u)) && String(u).length < 900000).slice(0, 8);
   return {
+    // photos are left as they are when the save does not send them (the list leaves them out to stay fast)
+    ...(Array.isArray(b.images) ? { images } : {}),
+    ...(Array.isArray(b.files) ? { files: cleanFiles(b.files) } : {}),
     refName: str(b.refName), title: str(b.title), date: isDay(b.date) ? b.date : new Date().toISOString().slice(0, 10), time: str(b.time),
     dur: Math.max(0.25, num(b.dur) || 1), mode: str(b.mode) || "Google Meet", theirs: str(b.theirs), ours: str(b.ours),
     notes: String(b.notes || ""), images, momTxt: String(b.momTxt || ""), sentWa: str(b.sentWa), sentMail: str(b.sentMail),
   };
 };
 export async function listMeetings(req, res) {
-  try { return res.json({ success: true, data: await PortalMeeting.find({ account: req.portal._id }).sort({ date: -1, time: -1 }).limit(200).lean() }); }
-  catch (err) { return fail(res, err, "listMeetings"); }
+  try {
+    // photos are big, so the list only says how many there are; GET /meetings/:id has them
+    const L = await PortalMeeting.aggregate([
+      { $match: { account: req.portal._id } }, { $sort: { date: -1, time: -1 } }, { $limit: 200 },
+      { $addFields: { imgCount: { $size: { $ifNull: ["$images", []] } } } }, { $project: { images: 0 } },
+    ]);
+    return res.json({ success: true, data: L });
+  } catch (err) { return fail(res, err, "listMeetings"); }
+}
+export async function getMeeting(req, res) {
+  try {
+    if (!isId(req.params.id)) return res.status(400).json({ success: false, message: "Invalid id" });
+    const m = await PortalMeeting.findOne({ _id: req.params.id, account: req.portal._id }).lean();
+    if (!m) return res.status(404).json({ success: false, message: "Not found" });
+    return res.json({ success: true, data: m });
+  } catch (err) { return fail(res, err, "getMeeting"); }
 }
 export async function saveMeeting(req, res) {
   try {
     const f = meetingFields(req.body || {});
     if (!f.title) return res.status(400).json({ success: false, message: "Say what the meeting was about" });
-    if (!f.notes.trim() && !f.images.length) return res.status(400).json({ success: false, message: "Write some notes or attach a photo of the notes" });
+    if (!f.notes.trim() && !f.images?.length && !f.files?.length && !req.params.id) return res.status(400).json({ success: false, message: "Write some notes or attach a photo of the notes" });
     let m;
     if (req.params.id) {
       if (!isId(req.params.id)) return res.status(400).json({ success: false, message: "Invalid id" });
@@ -409,9 +538,9 @@ export async function saveMeeting(req, res) {
     } else {
       m = await PortalMeeting.create({ ...f, account: req.portal._id });
       // the meeting also counts on the timesheet
-      if (!(await PortalDay.exists({ account: req.portal._id, date: f.date }))) {
-        await PortalWork.create({ account: req.portal._id, date: f.date, type: "meeting", refName: f.refName, title: `Meeting: ${f.title}`, hrs: f.dur, meta: { meeting: String(m._id) } });
-      }
+      // after the day is submitted it counts as extra work
+      const extra = !!(await PortalDay.exists({ account: req.portal._id, date: f.date }));
+      await PortalWork.create({ account: req.portal._id, date: f.date, type: "meeting", refName: f.refName, title: `Meeting: ${f.title}`, hrs: f.dur, meta: { meeting: String(m._id), ...(extra ? { extra: true } : {}) } });
     }
     return res.json({ success: true, data: m });
   } catch (err) { return fail(res, err, "saveMeeting"); }

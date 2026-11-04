@@ -77,6 +77,7 @@ const PortalMeetingSchema = new mongoose.Schema(
     ours:     { type: String, default: "" },
     notes:    { type: String, default: "" },
     images:   { type: [String], default: [] },         // compressed data URLs
+    files:    { type: [{ url: String, name: String, type: { type: String }, size: Number, _id: false }], default: [] }, // MOM and other documents
     momTxt:   { type: String, default: "" },
     sentWa:   { type: String, default: "" },
     sentMail: { type: String, default: "" },
@@ -111,6 +112,18 @@ const PortalDaySchema = new mongoose.Schema(
   { timestamps: true, collection: "portal_days" }
 );
 PortalDaySchema.index({ account: 1, date: 1 }, { unique: true });
+
+/* Check in and check out times for one employee and day; several sessions if they step out */
+const PortalAttendanceSchema = new mongoose.Schema(
+  {
+    account:  { type: ObjectId, ref: "PortalAccount", required: true },
+    date:     { type: String, required: true },         // "YYYY-MM-DD" (employee's day)
+    sessions: [{ in: { type: Date, required: true }, out: { type: Date, default: null }, _id: false }],
+  },
+  { timestamps: true, collection: "portal_attendance" }
+);
+PortalAttendanceSchema.index({ account: 1, date: 1 }, { unique: true });
+PortalAttendanceSchema.index({ date: -1 });
 
 /* Bell notifications for one employee (task assigned, bug raised or fixed, admin message…) */
 const PortalNotificationSchema = new mongoose.Schema(
@@ -185,6 +198,7 @@ export const PortalTask    = model("PortalTask", PortalTaskSchema);
 export const PortalMeeting = model("PortalMeeting", PortalMeetingSchema);
 export const PortalBlocker = model("PortalBlocker", PortalBlockerSchema);
 export const PortalDay     = model("PortalDay", PortalDaySchema);
+export const PortalAttendance = model("PortalAttendance", PortalAttendanceSchema);
 export const PortalSetting = model("PortalSetting", PortalSettingSchema);
 export const PortalNotification = model("PortalNotification", PortalNotificationSchema);
 export const PortalMessage = model("PortalMessage", PortalMessageSchema);
