@@ -3,6 +3,7 @@ import {
   SeoMember, SeoClient, SeoWork, SeoAdsDay, SeoKeyword, SeoSetting, SEO_ROLES, SEO_WORK_TYPES,
 } from "../models/SeoTeam.js";
 import Lead from "../models/Lead.js";
+import { removePortalAccounts } from "../utils/portalSync.js";
 
 const isId = (id) => mongoose.Types.ObjectId.isValid(id);
 const idOrNull = (v) => (v && isId(v) ? v : null);
@@ -77,6 +78,7 @@ export async function deleteMember(req, res) {
   try {
     if (!isId(req.params.id)) return res.status(400).json({ success: false, message: "Invalid id" });
     const id = req.params.id;
+    await removePortalAccounts({ seoMember: id });   // their Employee Portal login goes too
     const used = await SeoWork.countDocuments({ who: id }) + await SeoAdsDay.countDocuments({ who: id });
     // Keep their logged work attributed: deactivate instead of deleting
     if (used) { await SeoMember.findByIdAndUpdate(id, { isActive: false }); return res.json({ success: true, deactivated: true }); }

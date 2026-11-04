@@ -1,6 +1,8 @@
 import mongoose from "mongoose";
 import Developer, { DEVELOPER_ROLES } from "../models/Developer.js";
 import Lead from "../models/Lead.js";
+import { PortalAccount } from "../models/Portal.js";
+import { syncDeveloperLogin, removePortalAccounts } from "../utils/portalSync.js";
 
 const isValidId = (id) => mongoose.Types.ObjectId.isValid(id);
 const PROJECT_FIELDS = "name business company projectStage projectCompleted developers";
@@ -29,16 +31,18 @@ const validIds = (ids) => (Array.isArray(ids) ? [...new Set(ids.map(String))].fi
 
 // Each developer with the projects they are assigned to
 async function withProjects(devs) {
-  const projects = await Lead.find({ developers: { $in: devs.map(d => d._id) } })
-    .select(PROJECT_FIELDS)
-    .sort({ createdAt: -1 })
-    .lean();
+  const [projects, logins] = await Promise.all([
+    Lead.find({ developers: { $in: devs.map(d => d._id) } }).select(PROJECT_FIELDS).sort({ createdAt: -1 }).lean(),
+    PortalAccount.find({ developer: { $in: devs.map(d => d._id) } }).select("developer email status lastLogin").lean(),
+  ]);
   return devs.map(d => {
     const mine = projects
       .filter(p => (p.developers || []).some(id => String(id) === String(d._id)))
       .map(({ developers: _omit, ...p }) => p);
+    const login = logins.find(a => String(a.developer) === String(d._id));
     return {
       ...d,
+      portal: login ? { status: login.status, email: login.email, lastLogin: login.lastLogin } : null,
       projects: mine,
       activeProjects: mine.filter(p => !p.projectCompleted && p.projectStage !== "Project Completed").length,
     };
@@ -65,7 +69,13 @@ export async function createDeveloper(req, res) {
   try {
     const fields = pickFields(req.body);
     if (!fields.name) return res.status(400).json({ success: false, message: "Name is required" });
+    const pw = String(req.body.portalPassword || "");
+    if (pw && !fields.email) return res.status(400).json({ success: false, message: "Add the developer's email: it is their portal login." });
     const dev = await Developer.create(fields);
+    if (pw) {
+      try { await syncDeveloperLogin(dev.toObject(), pw, req.actorName); }
+      catch (e) { await Developer.deleteOne({ _id: dev._id }); throw e; }
+    }
     const projectIds = validIds(req.body.projectIds);
     if (projectIds.length) await Lead.updateMany({ _id: { $in: projectIds } }, { $addToSet: { developers: dev._id } });
     const [data] = await withProjects([dev.toObject()]);
@@ -82,6 +92,8 @@ export async function updateDeveloper(req, res) {
     if ("name" in fields && !fields.name) return res.status(400).json({ success: false, message: "Name is required" });
     const dev = await Developer.findByIdAndUpdate(id, fields, { new: true, runValidators: true }).lean();
     if (!dev) return res.status(404).json({ success: false, message: "Developer not found" });
+    // keep the portal login in step (and set a new password if one was typed)
+    await syncDeveloperLogin(dev, String(req.body.portalPassword || ""), req.actorName);
 
     if (Array.isArray(req.body.projectIds)) {
       const projectIds = validIds(req.body.projectIds);
@@ -102,7 +114,8 @@ export async function deleteDeveloper(req, res) {
     const dev = await Developer.findByIdAndDelete(id);
     if (!dev) return res.status(404).json({ success: false, message: "Developer not found" });
     await Lead.updateMany({ developers: dev._id }, { $pull: { developers: dev._id } });
-    return res.json({ success: true });
+    const removed = await removePortalAccounts({ developer: dev._id });   // their Employee Portal login goes too
+    return res.json({ success: true, portalRemoved: removed });
   } catch (err) { return sendError(res, err, "deleteDeveloper"); }
 }
 

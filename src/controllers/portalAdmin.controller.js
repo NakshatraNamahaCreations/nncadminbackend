@@ -2,8 +2,10 @@ import mongoose from "mongoose";
 import bcrypt from "bcryptjs";
 import crypto from "crypto";
 import { PortalAccount, PortalWork, PortalTask, PortalMeeting, PortalBlocker, PortalDay, PortalSetting, PORTAL_ROLES, notify } from "../models/Portal.js";
-import { SeoClient } from "../models/SeoTeam.js";
+import { SeoClient, SeoMember } from "../models/SeoTeam.js";
 import Lead from "../models/Lead.js";
+import Developer from "../models/Developer.js";
+import { removePortalAccounts, checkPassword } from "../utils/portalSync.js";
 import { ensureLinks, getSettingsDoc } from "./portal.controller.js";
 
 const isId = (v) => mongoose.Types.ObjectId.isValid(v);
@@ -38,12 +40,18 @@ async function worksOn(accs) {
 export async function listAccounts(req, res) {
   try {
     const accs = await PortalAccount.find().sort({ createdAt: -1 }).lean();
-    const w = await worksOn(accs);
+    const [w, devs, mems] = await Promise.all([
+      worksOn(accs),
+      Developer.find({ _id: { $in: accs.map(a => a.developer).filter(Boolean) } }).select("_id").lean(),
+      SeoMember.find({ _id: { $in: accs.map(a => a.seoMember).filter(Boolean) } }).select("_id").lean(),
+    ]);
+    // linked CRM record was deleted (eg. removed from Settings → Developers)
+    const orphan = (a) => (a.developer && !devs.some(d => String(d._id) === String(a.developer))) || (a.seoMember && !mems.some(m => String(m._id) === String(a.seoMember)));
     return res.json({
       success: true,
       data: accs.map(a => ({
         id: String(a._id), name: a.name, email: a.email, phone: a.phone, role: a.role, status: a.status, mustChange: a.mustChange,
-        created: a.createdAt, lastLogin: a.lastLogin, logins: a.logins || 0, worksOn: w(a),
+        created: a.createdAt, lastLogin: a.lastLogin, logins: a.logins || 0, worksOn: w(a), orphan: !!orphan(a),
       })),
     });
   } catch (err) { return fail(res, err, "listAccounts"); }
@@ -65,6 +73,40 @@ export async function updateAccount(req, res) {
     if (acc.status === "active") await ensureLinks(acc.toObject());
     return res.json({ success: true });
   } catch (err) { return fail(res, err, "updateAccount"); }
+}
+
+// PUT /api/portal/admin/accounts/:id/password { password }  → admin sets the password the employee signs in with
+export async function setPassword(req, res) {
+  try {
+    if (!isId(req.params.id)) return res.status(400).json({ success: false, message: "Invalid id" });
+    const pw = String(req.body?.password || "");
+    checkPassword(pw);
+    const r = await PortalAccount.updateOne({ _id: req.params.id }, { $set: { password: await bcrypt.hash(pw, 10), mustChange: false } });
+    if (!r.matchedCount) return res.status(404).json({ success: false, message: "Not found" });
+    return res.json({ success: true });
+  } catch (err) { return err.status ? res.status(err.status).json({ success: false, message: err.message }) : fail(res, err, "setPassword"); }
+}
+
+// DELETE /api/portal/admin/accounts/:id  → removes the login and the linked CRM Developer / SEO member
+export async function deleteAccount(req, res) {
+  try {
+    if (!isId(req.params.id)) return res.status(400).json({ success: false, message: "Invalid id" });
+    const acc = await PortalAccount.findById(req.params.id).lean();
+    if (!acc) return res.status(404).json({ success: false, message: "Not found" });
+    if (acc.developer) {
+      await Lead.updateMany({ developers: acc.developer }, { $pull: { developers: acc.developer } });
+      await Developer.deleteOne({ _id: acc.developer });
+    }
+    if (acc.seoMember) {
+      // keep SEO work attributed: the member is only marked inactive and taken off clients
+      await SeoMember.updateOne({ _id: acc.seoMember }, { isActive: false });
+      await SeoClient.updateMany({ seo: acc.seoMember }, { seo: null });
+      await SeoClient.updateMany({ ads: acc.seoMember }, { ads: null });
+      await SeoClient.updateMany({ design: acc.seoMember }, { design: null });
+    }
+    await removePortalAccounts({ _id: acc._id });
+    return res.json({ success: true });
+  } catch (err) { return fail(res, err, "deleteAccount"); }
 }
 
 // POST /api/portal/admin/accounts/:id/reset  → returns a temporary password to share

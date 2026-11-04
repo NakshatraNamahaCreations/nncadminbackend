@@ -31,6 +31,8 @@ const adminEdit = [protect, requireModule("employee-portal", "edit")];
 router.get("/admin/accounts", adminView, A.listAccounts);
 router.put("/admin/accounts/:id", adminEdit, A.updateAccount);
 router.post("/admin/accounts/:id/reset", adminEdit, A.resetPassword);
+router.put("/admin/accounts/:id/password", adminEdit, A.setPassword);
+router.delete("/admin/accounts/:id", adminEdit, A.deleteAccount);
 router.get("/admin/work", adminView, A.teamWork);
 router.put("/admin/blockers/:id/resolve", adminEdit, A.resolveBlocker);
 router.get("/admin/meetings", adminView, A.allMeetings);
