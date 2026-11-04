@@ -29,6 +29,8 @@ router.post("/login", authLimiter, P.login);
 const adminView = [protect, requireModule("employee-portal", "view")];
 const adminEdit = [protect, requireModule("employee-portal", "edit")];
 router.get("/admin/accounts", adminView, A.listAccounts);
+router.post("/admin/accounts", adminEdit, A.createAccount);
+router.put("/admin/accounts/:id/projects", adminEdit, A.updateProjects);
 router.put("/admin/accounts/:id", adminEdit, A.updateAccount);
 router.post("/admin/accounts/:id/reset", adminEdit, A.resetPassword);
 router.put("/admin/accounts/:id/password", adminEdit, A.setPassword);
