@@ -6,9 +6,9 @@ import { PortalAccount, PortalTask, PortalNotification, PortalBlocker, TeamRead 
 // CRM developer role → portal role
 const DEV_TO_PORTAL = {
   "Full Stack": "full", Frontend: "web", Backend: "back", "Mobile App": "app",
-  "UI/UX Designer": "ux", "WordPress / CMS": "web", "Tester / QA": "test", Other: "full",
+  "UI/UX Designer": "ux", "WordPress / CMS": "web", "Tester / QA": "test", Other: "other",
 };
-const DEV_PORTAL_ROLES = ["app", "web", "back", "full", "ux", "test"];
+const DEV_PORTAL_ROLES = ["app", "web", "back", "full", "ux", "test", "other"];
 
 export function checkPassword(pw) {
   if (String(pw).length < 8 || !/\d/.test(pw)) {

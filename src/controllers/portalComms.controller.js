@@ -32,11 +32,11 @@ export async function listNotifications(req, res) {
     return res.json({ success: true, data: { list, unread, unreadMessages: msgs } });
   } catch (err) { return fail(res, err, "listNotifications"); }
 }
-// PUT /api/portal/notifications/read { ids? }  (no ids = all)
+// PUT /api/portal/notifications/read { ids? }  (no ids = all) → an opened notification is removed, so it does not show again
 export async function readNotifications(req, res) {
   try {
     const ids = (Array.isArray(req.body?.ids) ? req.body.ids : []).filter(isId);
-    await PortalNotification.updateMany({ account: req.portal._id, ...(ids.length ? { _id: { $in: ids } } : {}) }, { read: true });
+    await PortalNotification.deleteMany({ account: req.portal._id, ...(ids.length ? { _id: { $in: ids } } : {}) });
     return res.json({ success: true });
   } catch (err) { return fail(res, err, "readNotifications"); }
 }

@@ -29,19 +29,22 @@ export async function getSettingsDoc() {
   return (await PortalSetting.findOne({ key: "default" }).lean()) || { approval: true, domainOnly: false, showSecrets: true, domain: "nakshatranamahacreations.com" };
 }
 
-const SEO_ROLE = { seo: "seo", ads: "ads", gfx: "design" };
-const DEV_ROLE = { app: "Mobile App", web: "Frontend", back: "Backend", full: "Full Stack", ux: "UI/UX Designer", test: "Tester / QA" };
-const SEO_FIELD = { seo: "seo", ads: "ads", gfx: "design" };
+const SEO_ROLE = { seo: "seo", seox: "seo", ads: "ads", gfx: "design" };
+const DEV_ROLE = { app: "Mobile App", web: "Frontend", back: "Backend", full: "Full Stack", ux: "UI/UX Designer", test: "Tester / QA", other: "Other" };
+const SEO_FIELD = { seo: "seo", seox: "seo", ads: "ads", gfx: "design" };
 
 // Create the CRM records an active employee is linked to (SEO team member or Developer)
 export async function ensureLinks(acc) {
   const upd = {};
   if (SEO_ROLE[acc.role] && !acc.seoMember) {
-    const m = await SeoMember.create({ name: acc.name, role: SEO_ROLE[acc.role], phone: acc.phone, email: acc.email });
+    // reuse the SEO member already added in the CRM with this email, so nobody shows twice
+    const m = (acc.email && await SeoMember.findOne({ email: acc.email }).select("_id").lean())
+      || await SeoMember.create({ name: acc.name, role: SEO_ROLE[acc.role], phone: acc.phone, email: acc.email });
     upd.seoMember = m._id;
   }
   if (DEV_ROLE[acc.role] && !acc.developer) {
-    const d = await Developer.create({ name: acc.name, role: DEV_ROLE[acc.role], phone: acc.phone, email: acc.email });
+    const d = (acc.email && await Developer.findOne({ email: acc.email }).select("_id").lean())
+      || await Developer.create({ name: acc.name, role: DEV_ROLE[acc.role], phone: acc.phone, email: acc.email });
     upd.developer = d._id;
   }
   if (Object.keys(upd).length) await PortalAccount.updateOne({ _id: acc._id }, { $set: upd });
@@ -264,10 +267,24 @@ export async function myBugs(req, res) {
     return res.json({ success: true, data: bugs });
   } catch (err) { return fail(res, err, "myBugs"); }
 }
+// GET /api/portal/bugs/activity → what the testers did on my projects: test runs and the other bugs raised
+export async function bugActivity(req, res) {
+  try {
+    const me = req.portal, mine = String(me._id);
+    const leads = me.developer ? await Lead.find({ developers: me.developer }).select("_id").lean() : [];
+    const ids = leads.map(l => l._id);
+    const [tests, bugs] = await Promise.all([
+      PortalWork.find({ type: "test", $or: [{ refId: { $in: ids } }, { account: me._id }] }).sort({ date: -1, createdAt: -1 }).limit(60).populate("account", "name").lean(),
+      ids.length ? PortalWork.find({ type: "bug", refId: { $in: ids }, account: { $ne: me._id }, "meta.assign": { $ne: mine } }).sort({ createdAt: -1 }).limit(60).populate("account", "name").lean() : [],
+    ]);
+    return res.json({ success: true, data: { tests, bugs } });
+  } catch (err) { return fail(res, err, "bugActivity"); }
+}
+
 // Developers who can be assigned a bug
 export async function developersList(req, res) {
   try {
-    const L = await PortalAccount.find({ role: { $in: ["app", "web", "back", "full"] }, status: "active" }).select("name role").sort({ name: 1 }).lean();
+    const L = await PortalAccount.find({ role: { $in: ["app", "web", "back", "full", "other"] }, status: "active" }).select("name role").sort({ name: 1 }).lean();
     return res.json({ success: true, data: L.map(a => ({ id: String(a._id), name: a.name, role: a.role })) });
   } catch (err) { return fail(res, err, "developersList"); }
 }

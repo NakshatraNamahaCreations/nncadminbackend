@@ -15,6 +15,8 @@ const isId = (v) => mongoose.Types.ObjectId.isValid(v);
 const day = (d) => (d ? new Date(d).toISOString().slice(0, 10) : "");
 const pname = (p) => (p.business || p.company ? `${p.name} · ${p.business || p.company}` : p.name);
 const MONEY_DOC = /invoice|quotation|quote|payment|receipt|proforma|bill/i;
+// Lead drawer uploads default to the "Invoice" tag, so judge those by the file name, not the tag
+const leadDocOk = (d) => !MONEY_DOC.test(`${d.name} ${d.originalName}`);
 const weekStart = () => { const d = new Date(); const off = (d.getDay() + 6) % 7; d.setDate(d.getDate() - off); return d.toISOString().slice(0, 10); };
 
 function fail(res, err, where) {
@@ -62,7 +64,7 @@ export async function listProjects(req, res) {
     const data = leads.map(l => {
       const id = String(l._id), W = work.filter(w => String(w.refId) === id);
       const I = ints.filter(i => String(i.lead) === id);
-      const nDocs = docs.filter(d => String(d.leadId) === id && !MONEY_DOC.test(d.type)).length + (l.documents || []).filter(d => !MONEY_DOC.test(`${d.tag} ${d.name}`)).length;
+      const nDocs = docs.filter(d => String(d.leadId) === id && !MONEY_DOC.test(d.type)).length + (l.documents || []).filter(leadDocOk).length;
       return {
         id, name: pname(l), client: l.name, industry: l.industry || "", location: l.location || "", req: l.requirements || "",
         stage: l.projectStage || "", start: day(l.projectStartDate), due: day(l.projectCompletionDate), completed: !!l.projectCompleted, timeline: l.agreedTimeline || 0,
@@ -97,7 +99,7 @@ export async function projectDetail(req, res) {
     ]);
     const files = [
       ...docs.filter(d => !MONEY_DOC.test(d.type)).map(d => ({ id: String(d._id), name: d.name, kind: d.type === "mom" ? "Minutes" : d.type === "client_input" ? "From the client" : "Document", date: day(d.date), notes: d.notes, url: d.fileUrl, file: d.originalFileName, size: d.fileSize })),
-      ...(l.documents || []).filter(d => !MONEY_DOC.test(`${d.tag} ${d.name}`)).map((d, i) => ({ id: `l${i}`, name: d.name || d.originalName, kind: d.tag || "Document", date: d.documentDate || day(d.uploadedAt), notes: d.notes, url: d.url, file: d.originalName, size: d.size })),
+      ...(l.documents || []).filter(leadDocOk).map((d, i) => ({ id: `l${i}`, name: d.name || d.originalName, kind: d.tag || "Document", date: d.documentDate || day(d.uploadedAt), notes: d.notes, url: d.url, file: d.originalName, size: d.size })),
     ].sort((a, b) => String(b.date).localeCompare(String(a.date)));
     const moms = [
       ...(l.momLogs || []).map((m, i) => ({ id: `c${i}`, src: "crm", title: m.title, text: m.summary, attendees: m.attendees, date: day(m.date || m.at), by: m.by })),

@@ -18,7 +18,7 @@ function fail(res, err, where) {
   return res.status(500).json({ success: false, message: err.message || "Server error" });
 }
 
-const SEO_FIELD = { seo: "seo", ads: "ads", gfx: "design" };
+const SEO_FIELD = { seo: "seo", seox: "seo", ads: "ads", gfx: "design" };
 
 // What each employee works on (SEO clients or projects), for the Employees table
 async function worksOn(accs) {
@@ -157,11 +157,36 @@ export async function assignTask(req, res) {
     const b = req.body || {};
     if (!isId(b.account) || !str(b.title) || !isDay(b.due)) return res.status(400).json({ success: false, message: "Pick the employee, the task and a due date" });
     if (!(await PortalAccount.exists({ _id: b.account }))) return res.status(404).json({ success: false, message: "Employee not found" });
-    const t = await PortalTask.create({ account: b.account, title: str(b.title), refName: str(b.refName), due: b.due, from: req.actorName || "Admin" });
+    let refId = null, refName = str(b.refName);
+    if (isId(b.refId)) {
+      const [l, c] = await Promise.all([Lead.findById(b.refId).select("name business company").lean(), SeoClient.findById(b.refId).select("name").lean()]);
+      if (l) { refId = l._id; refName = l.business || l.company ? `${l.name} · ${l.business || l.company}` : l.name; }
+      else if (c) { refId = c._id; refName = c.name; }
+    }
+    const t = await PortalTask.create({ account: b.account, title: str(b.title), refName, refId, due: b.due, from: req.actorName || "Admin" });
     await notify(b.account, { kind: "task", title: `New task from ${t.from}`, text: `${t.title}${t.refName ? ` · ${t.refName}` : ""} · due ${t.due}`, link: "/tasks", from: t.from });
     return res.status(201).json({ success: true, data: t });
   } catch (err) { return fail(res, err, "assignTask"); }
 }
+// GET /api/portal/admin/accounts/:id/projects → projects or clients to pick for a task (theirs first)
+export async function accountProjects(req, res) {
+  try {
+    if (!isId(req.params.id)) return res.status(400).json({ success: false, message: "Invalid id" });
+    const a = await PortalAccount.findById(req.params.id).select("role developer seoMember").lean();
+    if (!a) return res.status(404).json({ success: false, message: "Not found" });
+    const pn = (l) => (l.business || l.company ? `${l.name} · ${l.business || l.company}` : l.name);
+    if (a.seoMember) {
+      const C = await SeoClient.find({ [SEO_FIELD[a.role] || "seo"]: a.seoMember }).select("name").sort({ name: 1 }).lean();
+      return res.json({ success: true, data: { mine: C.map(c => ({ id: String(c._id), name: c.name, kind: "client" })), others: [] } });
+    }
+    const L = await Lead.find({ $or: [{ projectStage: { $nin: ["", null] } }, { developers: { $exists: true, $ne: [] } }] })
+      .select("name business company projectStage projectCompleted developers").sort({ updatedAt: -1 }).limit(300).lean();
+    const row = (l) => ({ id: String(l._id), name: pn(l), kind: "project", stage: l.projectCompleted ? "Project Completed" : l.projectStage || "" });
+    const isMine = (l) => a.developer && (l.developers || []).some(d => String(d) === String(a.developer));
+    return res.json({ success: true, data: { mine: L.filter(isMine).map(row), others: L.filter(l => !isMine(l)).map(row) } });
+  } catch (err) { return fail(res, err, "accountProjects"); }
+}
+
 export async function listTasks(req, res) {
   try {
     const T = await PortalTask.find({ from: { $ne: "me" } }).sort({ due: 1 }).limit(500).populate("account", "name").lean();

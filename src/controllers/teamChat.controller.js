@@ -4,9 +4,9 @@ import { PortalAccount, TeamMessage, TeamRead } from "../models/Portal.js";
 // Group channels: "all" (everyone), "dev" (development, design, testing), "seo" (SEO, Ads, graphics).
 // Direct messages between two employees: "dm:<smallerId>:<largerId>".
 
-const DEV = ["app", "web", "back", "full", "ux", "test"];
-const SEO = ["seo", "ads", "gfx"];
-const GROUPS = { all: "Everyone", dev: "Development and design", seo: "SEO and Ads" };
+const DEV = ["app", "web", "back", "full", "ux", "test", "other"];
+const SEO = ["seo", "seox", "ads", "gfx"];
+const GROUPS = { all: "Everyone", dev: "Development and design", seo: "Digital Marketing" };
 const str = (v) => String(v ?? "").trim();
 
 function fail(res, err, where) {

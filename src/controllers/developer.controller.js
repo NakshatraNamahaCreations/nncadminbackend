@@ -27,6 +27,23 @@ function pickFields(body) {
   return out;
 }
 
+const escRe = (s) => s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+
+// Same email, or same name with the same (or no) phone: stops a double click or a re-add showing a developer twice
+async function findDuplicate(fields, exceptId) {
+  const not = exceptId ? { _id: { $ne: exceptId } } : {};
+  const email = String(fields.email || "").toLowerCase();
+  if (email) {
+    const d = await Developer.findOne({ email, ...not }).select("name").lean();
+    if (d) return `${d.name} already uses this email`;
+  }
+  if (fields.name) {
+    const d = await Developer.findOne({ name: new RegExp(`^${escRe(fields.name)}$`, "i"), phone: fields.phone || "", ...not }).select("name").lean();
+    if (d) return `${d.name} is already in the list`;
+  }
+  return "";
+}
+
 const validIds = (ids) => (Array.isArray(ids) ? [...new Set(ids.map(String))].filter(isValidId) : []);
 
 // Each developer with the projects they are assigned to
@@ -71,6 +88,8 @@ export async function createDeveloper(req, res) {
     if (!fields.name) return res.status(400).json({ success: false, message: "Name is required" });
     const pw = String(req.body.portalPassword || "");
     if (pw && !fields.email) return res.status(400).json({ success: false, message: "Add the developer's email: it is their portal login." });
+    const dup = await findDuplicate(fields);
+    if (dup) return res.status(409).json({ success: false, message: `${dup}. Edit that developer instead.` });
     const dev = await Developer.create(fields);
     if (pw) {
       try { await syncDeveloperLogin(dev.toObject(), pw, req.actorName); }
@@ -90,6 +109,10 @@ export async function updateDeveloper(req, res) {
     if (!isValidId(id)) return res.status(400).json({ success: false, message: "Invalid id" });
     const fields = pickFields(req.body);
     if ("name" in fields && !fields.name) return res.status(400).json({ success: false, message: "Name is required" });
+    if (fields.email) {
+      const dup = await Developer.findOne({ email: fields.email.toLowerCase(), _id: { $ne: id } }).select("name").lean();
+      if (dup) return res.status(409).json({ success: false, message: `${dup.name} already uses this email` });
+    }
     const dev = await Developer.findByIdAndUpdate(id, fields, { new: true, runValidators: true }).lean();
     if (!dev) return res.status(404).json({ success: false, message: "Developer not found" });
     // keep the portal login in step (and set a new password if one was typed)

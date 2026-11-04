@@ -3,7 +3,7 @@ import mongoose from "mongoose";
 const { ObjectId, Mixed } = mongoose.Schema.Types;
 
 // Employee Portal roles (the portal's own list; linked to SEO team / Developers records)
-export const PORTAL_ROLES = ["seo", "ads", "gfx", "app", "web", "back", "full", "ux", "test", "acc"];
+export const PORTAL_ROLES = ["seo", "seox", "ads", "gfx", "app", "web", "back", "full", "ux", "test", "other", "acc"];
 
 /* An employee's portal login */
 const PortalAccountSchema = new mongoose.Schema(
@@ -53,6 +53,7 @@ const PortalTaskSchema = new mongoose.Schema(
     account: { type: ObjectId, ref: "PortalAccount", required: true },
     title:   { type: String, required: true, trim: true },
     refName: { type: String, default: "" },
+    refId:   { type: ObjectId, default: null },              // the CRM project (Lead) or SEO client it is for
     due:     { type: String, required: true },         // "YYYY-MM-DD"
     status:  { type: String, enum: ["todo", "doing", "done"], default: "todo" },
     from:    { type: String, default: "me" },          // "me" or the admin's name
