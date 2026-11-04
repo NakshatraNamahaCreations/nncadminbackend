@@ -41,6 +41,7 @@ import { projectExtraRoutes, recurringServiceRoutes } from "./src/routes/project
 import developerRoutes from "./src/routes/developer.routes.js";
 import salesDeskRoutes from "./src/routes/salesDesk.routes.js";
 import seoTeamRoutes from "./src/routes/seoTeam.routes.js";
+import portalRoutes from "./src/routes/portal.routes.js";
 import { initReportScheduler } from "./src/services/reportScheduler.js";
 import { getDashboardSummary } from "./src/services/dashboard.service.js";
 
@@ -79,6 +80,8 @@ const allowedOrigins = [
   "https://www.nakshatranamahacreations.com",
   "https://nncdigital.co.in",
   "https://www.nncdigital.co.in",
+  // Employee Portal site (set PORTAL_ORIGIN, comma separated for more than one)
+  ...String(process.env.PORTAL_ORIGIN || "").split(",").map(s => s.trim()).filter(Boolean),
 ];
 const corsOptions = {
   origin: (origin, cb) => {
@@ -154,6 +157,7 @@ app.use("/api/recurring-services", recurringServiceRoutes);
 app.use("/api/developers",       developerRoutes);
 app.use("/api/sales-desk",       salesDeskRoutes);
 app.use("/api/seo",              seoTeamRoutes);
+app.use("/api/portal",           portalRoutes);   // Employee Portal
 
 
 
