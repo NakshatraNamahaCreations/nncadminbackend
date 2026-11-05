@@ -10,6 +10,7 @@ import * as PP from "../controllers/portalProject.controller.js";
 import * as C from "../controllers/portalComms.controller.js";
 import { empTeam, adminTeam } from "../controllers/teamChat.controller.js";
 import * as S from "../controllers/portalShare.controller.js";
+import { PortalAttendance } from "../models/Portal.js";
 
 const router = express.Router();
 
@@ -38,6 +39,7 @@ const adminEdit = [protect, requireModule("employee-portal", "edit")];
 // An admin change to an account (role, status, password, delete) applies on the employee's next request
 router.use("/admin/accounts/:id", (req, res, next) => { res.on("finish", () => forgetPortal(req.params.id)); next(); });
 router.get("/admin/accounts", adminView, A.listAccounts);
+router.get("/admin/counts", adminView, A.counts);
 router.post("/admin/accounts", adminEdit, A.createAccount);
 router.put("/admin/accounts/:id/projects", adminEdit, A.updateProjects);
 router.put("/admin/accounts/:id", adminEdit, A.updateAccount);
@@ -62,8 +64,23 @@ router.post("/admin/team/messages", adminEdit, adminTeam.send);
 router.get("/admin/settings", adminView, A.getSettings);
 router.put("/admin/settings", adminEdit, A.saveSettings);
 
+// any other /admin address does not exist: say so, instead of asking for an employee login (a 401 signs the CRM out)
+router.use("/admin", (req, res) => res.status(404).json({ success: false, message: "Not found" }));
+
 /* employee — signed in with a portal login */
 router.use(protectPortal);
+// After the employee checks out, the portal is closed for the rest of that day (India time):
+// nothing can be logged, sent or changed until the next morning. Reading still works.
+const OPEN_AFTER_CHECKOUT = ["/attendance", "/notifications/read", "/me/password"];
+router.use(async (req, res, next) => {
+  if (req.method === "GET" || OPEN_AFTER_CHECKOUT.includes(req.path)) return next();
+  try {
+    const date = new Date(Date.now() + 330 * 60000).toISOString().slice(0, 10);
+    const closed = await PortalAttendance.exists({ account: req.portal._id, date, "sessions.0": { $exists: true }, sessions: { $not: { $elemMatch: { out: null } } } });
+    if (closed) return res.status(423).json({ success: false, closed: true, message: "You have checked out for today. The portal opens again tomorrow morning." });
+  } catch (e) { console.error("checkout lock:", e.message); }
+  return next();
+});
 router.get("/me", P.getMe);
 router.put("/me", P.updateMe);
 router.put("/me/password", P.changePassword);

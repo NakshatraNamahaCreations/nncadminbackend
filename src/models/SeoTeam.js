@@ -34,6 +34,7 @@ const SeoClientSchema = new mongoose.Schema(
     // everyone working on this client; seo, ads and design above are filled from it for reports
     members:  { type: [{ type: ObjectId, ref: "SeoMember" }], default: [] },
     budget:   { type: Number, default: 0, min: 0 },          // Google Ads budget per month
+    metaBudget: { type: Number, default: 0, min: 0 },        // Meta (Facebook / Instagram) Ads budget per month
     targets: {
       backlink: { type: Number, default: 40 },
       blog:     { type: Number, default: 4 },

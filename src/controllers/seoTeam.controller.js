@@ -122,6 +122,7 @@ const clientFields = (b) => {
   for (const k of ["seo", "ads", "design"]) if (b[k] !== undefined) o[k] = idOrNull(b[k]);
   if (Array.isArray(b.members)) o.members = [...new Set(b.members.filter(isId).map(String))];
   if (b.budget !== undefined) o.budget = Math.max(0, num(b.budget));
+  if (b.metaBudget !== undefined) o.metaBudget = Math.max(0, num(b.metaBudget));
   if (b.targets && typeof b.targets === "object") {
     for (const k of ["backlink", "blog", "gmb", "poster"]) if (b.targets[k] !== undefined) o[`targets.${k}`] = Math.max(0, num(b.targets[k]));
   }

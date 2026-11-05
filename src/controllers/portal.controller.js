@@ -149,7 +149,7 @@ export async function changePassword(req, res) {
 async function myClients(acc) {
   const F = [...new Set(rolesOf(acc).map(r => SEO_FIELD[r]).filter(Boolean))];
   if (!F.length || !acc.seoMember) return [];
-  return SeoClient.find({ $or: [{ members: acc.seoMember }, ...F.map(f => ({ [f]: acc.seoMember }))], isActive: { $ne: false } }).select("name site budget targets start contact phone email seo ads design members lead").sort({ name: 1 }).lean();
+  return SeoClient.find({ $or: [{ members: acc.seoMember }, ...F.map(f => ({ [f]: acc.seoMember }))], isActive: { $ne: false } }).select("name site budget metaBudget targets start contact phone email seo ads design members lead").sort({ name: 1 }).lean();
 }
 async function myProjects(acc) {
   if (hasRole(acc, ["acc"])) {
@@ -606,7 +606,7 @@ export async function myClientsDetail(req, res) {
       const lastCheck = K.flatMap(k => (k.hist || []).map(h => +new Date(h.date))).sort((a, b) => b - a)[0];
       const t = c.targets || {};
       return {
-        id: String(c._id), name: c.name, site: c.site || "", contact: c.contact || "", phone: c.phone || "", email: c.email || "", start: day(c.start), budget: c.budget || 0,
+        id: String(c._id), name: c.name, site: c.site || "", contact: c.contact || "", phone: c.phone || "", email: c.email || "", start: day(c.start), budget: c.budget || 0, metaBudget: c.metaBudget || 0,
         // on the team: every job my roles cover (an all-round digital marketer does SEO, Ads and design)
         myJobs: (() => {
           const onTeam = (c.members || []).some(x => String(x) === mine);

@@ -1,7 +1,7 @@
 import mongoose from "mongoose";
 import bcrypt from "bcryptjs";
 import crypto from "crypto";
-import { PortalAccount, PortalWork, PortalTask, PortalMeeting, PortalBlocker, PortalDay, PortalAttendance, PortalSetting, PORTAL_ROLES, notify , rolesOf } from "../models/Portal.js";
+import { PortalAccount, PortalWork, PortalTask, PortalMeeting, PortalBlocker, PortalDay, PortalAttendance, PortalSetting, PortalMessage, PortalDoc, PORTAL_ROLES, notify , rolesOf } from "../models/Portal.js";
 import { SeoClient, SeoMember } from "../models/SeoTeam.js";
 import Lead from "../models/Lead.js";
 import Developer from "../models/Developer.js";
@@ -249,6 +249,26 @@ export async function accountProjects(req, res) {
     const isMine = (l) => a.developer && (l.developers || []).some(d => String(d) === String(a.developer));
     return res.json({ success: true, data: { mine: L.filter(isMine).map(row), others: L.filter(l => !isMine(l)).map(row) } });
   } catch (err) { return fail(res, err, "accountProjects"); }
+}
+
+// GET /api/portal/admin/counts?work=&meetings=&docs=&tasks= (ISO times the admin last opened each tab)
+// → what is new in each Employee Portal tab: sign-ups waiting, unread messages, and work, meetings,
+//   documents and task updates from employees since that tab was last opened (default: the last 24 hours)
+export async function counts(req, res) {
+  try {
+    const dflt = new Date(Date.now() - 864e5);
+    const since = (k) => { const d = new Date(String(req.query[k] || "")); return isNaN(d) ? dflt : d; };
+    const [people, messages, work, meetings, docs, tasks] = await Promise.all([
+      PortalAccount.countDocuments({ status: "pending" }),
+      PortalMessage.countDocuments({ from: "emp", readAdmin: false }),
+      PortalWork.countDocuments({ createdAt: { $gt: since("work") } }),
+      PortalMeeting.countDocuments({ createdAt: { $gt: since("meetings") } }),
+      PortalDoc.countDocuments({ createdAt: { $gt: since("docs") } }),
+      PortalTask.countDocuments({ from: { $ne: "me" }, status: { $ne: "todo" }, updatedAt: { $gt: since("tasks") } }),
+    ]);
+    const data = { people, messages, work, meetings, docs, tasks };
+    return res.json({ success: true, data, total: Object.values(data).reduce((a, n) => a + n, 0) });
+  } catch (err) { return fail(res, err, "counts"); }
 }
 
 export async function listTasks(req, res) {
