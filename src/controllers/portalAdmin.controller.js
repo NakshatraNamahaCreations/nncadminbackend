@@ -67,7 +67,7 @@ export async function createAccount(req, res) {
     checkPassword(pw);
     if (await PortalAccount.exists({ email })) return res.status(409).json({ success: false, message: "An employee with this email already exists" });
     const extra = (Array.isArray(b.roles) ? b.roles : []).map(str).filter(r => PORTAL_ROLES.includes(r) && r !== role);
-    const acc = await PortalAccount.create({ name, email, phone: phone || "-", role, roles: [...new Set(extra)], password: await bcrypt.hash(pw, 10), status: "active", approvedBy: req.actorName || "Admin" });
+    const acc = await PortalAccount.create({ name, email, phone: phone || "-", branch: str(b.branch), role, roles: [...new Set(extra)], password: await bcrypt.hash(pw, 10), status: "active", approvedBy: req.actorName || "Admin" });
     const linked = await ensureLinks(acc.toObject());
     if (linked.developer && Array.isArray(b.projectIds) && b.projectIds.length) await setProjects(linked, b.projectIds);
     return res.status(201).json({ success: true, data: { id: String(acc._id) } });
@@ -98,7 +98,7 @@ export async function listAccounts(req, res) {
     return res.json({
       success: true,
       data: accs.map(a => ({
-        id: String(a._id), name: a.name, email: a.email, phone: a.phone, role: a.role, roles: rolesOf(a), status: a.status, mustChange: a.mustChange,
+        id: String(a._id), name: a.name, email: a.email, phone: a.phone, branch: a.branch || "", role: a.role, roles: rolesOf(a), status: a.status, mustChange: a.mustChange,
         created: a.createdAt, lastLogin: a.lastLogin, logins: a.logins || 0, works: w(a), orphan: !!orphan(a),
       })),
     });
@@ -120,6 +120,7 @@ export async function updateAccount(req, res) {
     if (Array.isArray(b.roles)) acc.roles = [...new Set(b.roles.map(str).filter(r => PORTAL_ROLES.includes(r) && r !== acc.role))];
     if (str(b.name)) acc.name = str(b.name);
     if (b.phone !== undefined && str(b.phone)) acc.phone = str(b.phone);
+    if (b.branch !== undefined) acc.branch = str(b.branch);
     await acc.save();
     const set = { name: acc.name, phone: acc.phone === "-" ? "" : acc.phone };
     if (acc.developer) await Developer.updateOne({ _id: acc.developer }, { ...set, ...(DEV_ROLE[acc.role] ? { role: DEV_ROLE[acc.role] } : {}) });
@@ -213,6 +214,17 @@ export async function oneMeeting(req, res) {
     if (!m) return res.status(404).json({ success: false, message: "Not found" });
     return res.json({ success: true, data: m });
   } catch (err) { return fail(res, err, "oneMeeting"); }
+}
+
+// DELETE /api/portal/admin/meetings/:id → the meeting and its timesheet entry
+export async function deleteMeetingAdmin(req, res) {
+  try {
+    if (!isId(req.params.id)) return res.status(400).json({ success: false, message: "Invalid id" });
+    const m = await PortalMeeting.findByIdAndDelete(req.params.id).select("_id").lean();
+    if (!m) return res.status(404).json({ success: false, message: "Not found" });
+    await PortalWork.deleteMany({ type: "meeting", "meta.meeting": String(m._id) });
+    return res.json({ success: true });
+  } catch (err) { return fail(res, err, "deleteMeetingAdmin"); }
 }
 
 // POST /api/portal/admin/tasks { account, title, due, refName }

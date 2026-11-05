@@ -13,6 +13,7 @@ const PortalAccountSchema = new mongoose.Schema(
     phone:      { type: String, required: true, trim: true },
     role:       { type: String, enum: PORTAL_ROLES, required: true },
     roles:      { type: [{ type: String, enum: PORTAL_ROLES }], default: [] },   // extra roles (the main one is role)
+    branch:     { type: String, default: "", trim: true },   // office they work from: Bangalore, Mysore or Mumbai
     password:   { type: String, required: true, select: false },
     status:     { type: String, enum: ["pending", "active", "disabled"], default: "pending" },
     mustChange: { type: Boolean, default: false },   // set after an admin reset

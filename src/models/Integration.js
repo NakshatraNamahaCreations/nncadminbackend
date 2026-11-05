@@ -5,7 +5,7 @@ import mongoose from "mongoose";
 export const INTEGRATION_CATEGORIES = [
   "Payment", "SMS / OTP", "WhatsApp", "Email", "Maps", "Login / Auth",
   "Hosting / Server", "Domain", "Database", "Analytics / Ads", "Shipping",
-  "App Store", "Other",
+  "Play Store", "App Store", "Other",
 ];
 export const INTEGRATION_STATUSES = ["pending", "in_progress", "live", "issue", "inactive"];
 

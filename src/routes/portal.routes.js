@@ -51,6 +51,7 @@ router.get("/admin/work", adminView, A.teamWork);
 router.put("/admin/blockers/:id/resolve", adminEdit, A.resolveBlocker);
 router.get("/admin/meetings", adminView, A.allMeetings);
 router.get("/admin/meetings/:id", adminView, A.oneMeeting);
+router.delete("/admin/meetings/:id", adminEdit, A.deleteMeetingAdmin);
 router.get("/admin/docs", adminView, S.adminDocs);
 router.get("/admin/tasks", adminView, A.listTasks);
 router.post("/admin/tasks", adminEdit, A.assignTask);

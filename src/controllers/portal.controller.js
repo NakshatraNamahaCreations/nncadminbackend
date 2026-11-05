@@ -209,6 +209,8 @@ export async function addWork(req, res) {
     const b = req.body || {}, acc = req.portal;
     const date = isDay(b.date) ? b.date : null;
     if (!date) return res.status(400).json({ success: false, message: "Pick a date" });
+    // today or a past day (India time), never a future one
+    if (date > new Date(Date.now() + 330 * 60000).toISOString().slice(0, 10)) return res.status(400).json({ success: false, message: "You cannot log work for a future date" });
     // After the day is submitted, new entries are saved as extra work (beyond the normal day)
     const extra = !!(await PortalDay.exists({ account: acc._id, date }));
     const type = str(b.type);
