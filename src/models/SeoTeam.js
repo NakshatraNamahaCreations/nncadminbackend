@@ -10,6 +10,7 @@ const SeoMemberSchema = new mongoose.Schema(
   {
     name:     { type: String, required: true, trim: true },
     role:     { type: String, enum: SEO_ROLES, default: "seo" },
+    roles:    { type: [{ type: String, enum: SEO_ROLES }], default: [] },   // everything this person does (seo, ads, design)
     phone:    { type: String, default: "", trim: true },
     email:    { type: String, default: "", trim: true },
     isActive: { type: Boolean, default: true },
@@ -30,6 +31,8 @@ const SeoClientSchema = new mongoose.Schema(
     seo:      { type: ObjectId, ref: "SeoMember", default: null },
     ads:      { type: ObjectId, ref: "SeoMember", default: null },
     design:   { type: ObjectId, ref: "SeoMember", default: null },
+    // everyone working on this client; seo, ads and design above are filled from it for reports
+    members:  { type: [{ type: ObjectId, ref: "SeoMember" }], default: [] },
     budget:   { type: Number, default: 0, min: 0 },          // Google Ads budget per month
     targets: {
       backlink: { type: Number, default: 40 },

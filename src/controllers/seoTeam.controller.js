@@ -23,7 +23,18 @@ function fail(res, err, where) {
 export async function getAll(req, res) {
   try {
     const since = new Date(Date.now() - 400 * 864e5);
-    const [team, clients, work, ads, keywords, setting] = await Promise.all([
+    // The team is the Employee Portal employees with an SEO, Ads or design role: add anyone not linked yet
+    const { PortalAccount, rolesOf } = await import("../models/Portal.js");
+    const { ensureLinks } = await import("./portal.controller.js");
+    const SEO_R = ["seo", "seox", "ads", "gfx"];
+    let accs = await PortalAccount.find({ status: "active" }).select("name email phone role roles status seoMember developer").lean();
+    for (const a of accs) {
+      if (rolesOf(a).some(r => SEO_R.includes(r))) {
+        try { const l = await ensureLinks(a); a.seoMember = l.seoMember; } catch (e) { console.error("seo team link error:", e.message); }
+      }
+    }
+    const linked = new Map(accs.filter(a => a.seoMember).map(a => [String(a.seoMember), a]));
+    const [teamRaw, clients, work, ads, keywords, setting] = await Promise.all([
       SeoMember.find().sort({ isActive: -1, name: 1 }).lean(),
       SeoClient.find().sort({ isActive: -1, name: 1 }).populate("lead", "name phone email business company").lean(),
       SeoWork.find({ date: { $gte: since } }).sort({ date: -1 }).lean(),
@@ -31,6 +42,8 @@ export async function getAll(req, res) {
       SeoKeyword.find().lean(),
       SeoSetting.findOne({ key: "default" }).lean(),
     ]);
+    // portal: true = has an Employee Portal login (shown in the team); the others are old entries kept for past work
+    const team = teamRaw.map(t => { const a = linked.get(String(t._id)); return { ...t, portal: !!a, account: a ? String(a._id) : "" }; });
     return res.json({ success: true, roles: SEO_ROLES, types: SEO_WORK_TYPES, data: { team, clients, work, ads, keywords, settings: { logo: setting?.logo || "" } } });
   } catch (err) { return fail(res, err, "seo getAll"); }
 }
@@ -91,6 +104,15 @@ export async function deleteMember(req, res) {
 }
 
 /* ── clients ── */
+// The team on a client: fill the SEO, Ads and design person from the members' roles (first one with each)
+async function withTeam(f) {
+  if (!f.members) return f;
+  const M = await SeoMember.find({ _id: { $in: f.members } }).select("role roles").lean();
+  const ord = f.members.map(id => M.find(m => String(m._id) === id)).filter(Boolean);
+  const pick = (r) => ord.find(m => (m.roles?.length ? m.roles : [m.role]).includes(r))?._id || null;
+  return { ...f, seo: pick("seo"), ads: pick("ads"), design: pick("design") };
+}
+
 const clientFields = (b) => {
   const o = {};
   for (const k of ["name", "contact", "phone", "email", "site"]) if (b[k] !== undefined) o[k] = str(b[k]);
@@ -98,6 +120,7 @@ const clientFields = (b) => {
   if (b.lead !== undefined) o.lead = idOrNull(b.lead);
   if (b.start !== undefined) o.start = day(b.start);
   for (const k of ["seo", "ads", "design"]) if (b[k] !== undefined) o[k] = idOrNull(b[k]);
+  if (Array.isArray(b.members)) o.members = [...new Set(b.members.filter(isId).map(String))];
   if (b.budget !== undefined) o.budget = Math.max(0, num(b.budget));
   if (b.targets && typeof b.targets === "object") {
     for (const k of ["backlink", "blog", "gmb", "poster"]) if (b.targets[k] !== undefined) o[`targets.${k}`] = Math.max(0, num(b.targets[k]));
@@ -107,7 +130,7 @@ const clientFields = (b) => {
 };
 export async function createClient(req, res) {
   try {
-    const f = clientFields(req.body || {});
+    const f = await withTeam(clientFields(req.body || {}));
     if (!f.name) return res.status(400).json({ success: false, message: "Client name is required" });
     if (!f.start) f.start = day(new Date());
     const doc = new SeoClient();
@@ -123,7 +146,7 @@ export async function createClient(req, res) {
 export async function updateClient(req, res) {
   try {
     if (!isId(req.params.id)) return res.status(400).json({ success: false, message: "Invalid id" });
-    const f = clientFields(req.body || {});
+    const f = await withTeam(clientFields(req.body || {}));
     if ("name" in f && !f.name) return res.status(400).json({ success: false, message: "Client name is required" });
     const c = await SeoClient.findByIdAndUpdate(req.params.id, { $set: f }, { new: true, runValidators: true }).populate("lead", "name phone email business company").lean();
     if (!c) return res.status(404).json({ success: false, message: "Not found" });

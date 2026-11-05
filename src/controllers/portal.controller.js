@@ -1,8 +1,7 @@
 import mongoose from "mongoose";
 import bcrypt from "bcryptjs";
 import {
-  PortalAccount, PortalWork, PortalTask, PortalMeeting, PortalBlocker, PortalDay, PortalAttendance, PortalSetting, PORTAL_ROLES,
-} from "../models/Portal.js";
+  PortalAccount, PortalWork, PortalTask, PortalMeeting, PortalBlocker, PortalDay, PortalAttendance, PortalSetting, PORTAL_ROLES, rolesOf, hasRole } from "../models/Portal.js";
 import { SeoMember, SeoClient, SeoWork, SeoAdsDay, SeoKeyword } from "../models/SeoTeam.js";
 import Developer from "../models/Developer.js";
 import Lead from "../models/Lead.js";
@@ -36,15 +35,20 @@ const SEO_FIELD = { seo: "seo", seox: "seo", ads: "ads", gfx: "design" };
 // Create the CRM records an active employee is linked to (SEO team member or Developer)
 export async function ensureLinks(acc) {
   const upd = {};
-  if (SEO_ROLE[acc.role] && !acc.seoMember) {
+  const R = rolesOf(acc);
+  const seoR = [...new Set(R.map(r => SEO_ROLE[r]).filter(Boolean))], devR = R.find(r => DEV_ROLE[r]);
+  if (seoR.length && !acc.seoMember) {
     // reuse the SEO member already added in the CRM with this email, so nobody shows twice
     const m = (acc.email && await SeoMember.findOne({ email: acc.email }).select("_id").lean())
-      || await SeoMember.create({ name: acc.name, role: SEO_ROLE[acc.role], phone: acc.phone, email: acc.email });
+      || await SeoMember.create({ name: acc.name, role: seoR[0], roles: seoR, phone: acc.phone, email: acc.email });
     upd.seoMember = m._id;
   }
-  if (DEV_ROLE[acc.role] && !acc.developer) {
+  // the SEO team page lists the person under every SEO, Ads and design role they have
+  if (!seoR.length && acc.seoMember) await SeoMember.updateOne({ _id: acc.seoMember }, { $set: { isActive: false } });   // no SEO, Ads or design role any more
+  if (seoR.length && (acc.seoMember || upd.seoMember)) await SeoMember.updateOne({ _id: acc.seoMember || upd.seoMember }, { $set: { role: seoR[0], roles: seoR, isActive: acc.status !== "disabled" } });
+  if (devR && !acc.developer) {
     const d = (acc.email && await Developer.findOne({ email: acc.email }).select("_id").lean())
-      || await Developer.create({ name: acc.name, role: DEV_ROLE[acc.role], phone: acc.phone, email: acc.email });
+      || await Developer.create({ name: acc.name, role: DEV_ROLE[devR], phone: acc.phone, email: acc.email });
     upd.developer = d._id;
   }
   if (Object.keys(upd).length) await PortalAccount.updateOne({ _id: acc._id }, { $set: upd });
@@ -52,7 +56,7 @@ export async function ensureLinks(acc) {
 }
 
 const publicAccount = (a) => ({
-  id: String(a._id), name: a.name, email: a.email, phone: a.phone, role: a.role, status: a.status,
+  id: String(a._id), name: a.name, email: a.email, phone: a.phone, role: a.role, roles: rolesOf(a), status: a.status,
   mustChange: !!a.mustChange, created: a.createdAt, lastLogin: a.lastLogin, logins: a.logins || 0,
 });
 
@@ -143,12 +147,12 @@ export async function changePassword(req, res) {
 /* ───────── what I work on ───────── */
 
 async function myClients(acc) {
-  const f = SEO_FIELD[acc.role];
-  if (!f || !acc.seoMember) return [];
-  return SeoClient.find({ [f]: acc.seoMember, isActive: { $ne: false } }).select("name site budget targets start contact phone").sort({ name: 1 }).lean();
+  const F = [...new Set(rolesOf(acc).map(r => SEO_FIELD[r]).filter(Boolean))];
+  if (!F.length || !acc.seoMember) return [];
+  return SeoClient.find({ $or: [{ members: acc.seoMember }, ...F.map(f => ({ [f]: acc.seoMember }))], isActive: { $ne: false } }).select("name site budget targets start contact phone email seo ads design members lead").sort({ name: 1 }).lean();
 }
 async function myProjects(acc) {
-  if (acc.role === "acc") {
+  if (hasRole(acc, ["acc"])) {
     return Lead.find({ stage: "Closed" }).select("name business company requirements projectStage value advanceReceived gstApplicable gstRate").sort({ updatedAt: -1 }).limit(300).lean();
   }
   if (!acc.developer) return [];
@@ -165,7 +169,7 @@ export async function assigned(req, res) {
         projects: projects.map(p => {
           const total = (Number(p.value) || 0) * (p.gstApplicable ? 1 + (Number(p.gstRate) || 18) / 100 : 1);
           return { id: String(p._id), name: p.business || p.company ? `${p.name} · ${p.business || p.company}` : p.name, stage: p.projectStage || "",
-            ...(req.portal.role === "acc" ? { total: Math.round(total), received: Number(p.advanceReceived) || 0 }
+            ...(hasRole(req.portal, ["acc"]) ? { total: Math.round(total), received: Number(p.advanceReceived) || 0 }
               : { req: p.requirements || "", start: day(p.projectStartDate), due: day(p.projectCompletionDate), completed: !!p.projectCompleted }) };
         }),
       },
@@ -265,7 +269,9 @@ export async function deleteWork(req, res) {
 export async function myBugs(req, res) {
   try {
     const me = req.portal;
-    const q = me.role === "test" ? { type: "bug", account: me._id } : { type: "bug", "meta.assign": String(me._id) };
+    // a tester sees the bugs they raised, a developer the bugs given to them (someone with both roles sees both)
+    const or = [...(hasRole(me, ["test"]) ? [{ account: me._id }] : []), ...(hasRole(me, ["app", "web", "back", "full", "other", "ux"]) || !hasRole(me, ["test"]) ? [{ "meta.assign": String(me._id) }] : [])];
+    const q = { type: "bug", $or: or };
     const bugs = await PortalWork.find(q).sort({ createdAt: -1 }).limit(300).populate("account", "name").lean();
     return res.json({ success: true, data: bugs });
   } catch (err) { return fail(res, err, "myBugs"); }
@@ -287,7 +293,8 @@ export async function bugActivity(req, res) {
 // Developers who can be assigned a bug
 export async function developersList(req, res) {
   try {
-    const L = await PortalAccount.find({ role: { $in: ["app", "web", "back", "full", "other"] }, status: "active" }).select("name role").sort({ name: 1 }).lean();
+    const DEVS = ["app", "web", "back", "full", "other"];
+    const L = await PortalAccount.find({ $or: [{ role: { $in: DEVS } }, { roles: { $in: DEVS } }], status: "active" }).select("name role").sort({ name: 1 }).lean();
     return res.json({ success: true, data: L.map(a => ({ id: String(a._id), name: a.name, role: a.role })) });
   } catch (err) { return fail(res, err, "developersList"); }
 }
@@ -568,6 +575,55 @@ async function myClientOr404(req, res, id) {
   const c = (await myClients(req.portal)).find(x => String(x._id) === String(id));
   if (!c) { res.status(404).json({ success: false, message: "This client is not assigned to you" }); return null; }
   return c;
+}
+// GET /api/portal/my-clients → every client given to me, with the team on it, this month's targets and progress,
+// today's ads report and the keyword checks (what the admin assigned in SEO & Ads Team)
+export async function myClientsDetail(req, res) {
+  try {
+    const me = req.portal, C = await myClients(me);
+    if (!C.length) return res.json({ success: true, data: [] });
+    const ids = C.map(c => c._id), now = new Date();
+    const dayStart = utcDay(now.toISOString().slice(0, 10));
+    const monStart = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), 1));
+    const wd = (now.getUTCDay() + 6) % 7, weekStart = new Date(dayStart.getTime() - wd * 864e5);
+    const memberIds = [...new Set(C.flatMap(c => [c.seo, c.ads, c.design, ...(c.members || [])]).filter(Boolean).map(String))];
+    const [work, ads, kws, members] = await Promise.all([
+      SeoWork.find({ client: { $in: ids }, date: { $gte: new Date(Math.min(monStart, weekStart)) } }).select("client type date who").lean(),
+      SeoAdsDay.find({ client: { $in: ids }, date: { $gte: monStart } }).select("client date spend clicks conv sent").lean(),
+      SeoKeyword.find({ client: { $in: ids } }).select("client hist").lean(),
+      SeoMember.find({ _id: { $in: memberIds } }).select("name phone email role roles").lean(),
+    ]);
+    const mem = (id) => { const m = members.find(x => String(x._id) === String(id)); return m ? { name: m.name, phone: m.phone || "", email: m.email || "" } : null; };
+    const mine = String(me.seoMember || "");
+    // working days (Mon to Sat) this month, to spread the monthly backlink target per day
+    let wdays = 0; for (let d = new Date(monStart); d.getUTCMonth() === monStart.getUTCMonth(); d = new Date(d.getTime() + 864e5)) if (d.getUTCDay() !== 0) wdays++;
+    const data = C.map(c => {
+      const W = work.filter(w => String(w.client) === String(c._id));
+      const cnt = (type, from) => W.filter(w => w.type === type && new Date(w.date) >= from).length;
+      const A = ads.filter(a => String(a.client) === String(c._id));
+      const today = A.find(a => new Date(a.date).getTime() === dayStart.getTime());
+      const K = kws.filter(k => String(k.client) === String(c._id));
+      const lastCheck = K.flatMap(k => (k.hist || []).map(h => +new Date(h.date))).sort((a, b) => b - a)[0];
+      const t = c.targets || {};
+      return {
+        id: String(c._id), name: c.name, site: c.site || "", contact: c.contact || "", phone: c.phone || "", email: c.email || "", start: day(c.start), budget: c.budget || 0,
+        // on the team: every job my roles cover (an all-round digital marketer does SEO, Ads and design)
+        myJobs: (() => {
+          const onTeam = (c.members || []).some(x => String(x) === mine);
+          const J = new Set([String(c.seo || "") === mine && "seo", String(c.ads || "") === mine && "ads", String(c.design || "") === mine && "design"].filter(Boolean));
+          if (onTeam) rolesOf(me).forEach(r => { if (SEO_FIELD[r]) J.add(SEO_FIELD[r]); });
+          return [...J];
+        })(),
+        team: { seo: mem(c.seo), ads: mem(c.ads), design: mem(c.design) },
+        people: [...new Set([...(c.members || []), c.seo, c.ads, c.design].filter(Boolean).map(String))].map(id => { const m = members.find(x => String(x._id) === id); return m ? { name: m.name, roles: m.roles?.length ? m.roles : [m.role] } : null; }).filter(Boolean),
+        targets: { backlink: t.backlink || 0, blog: t.blog || 0, gmb: t.gmb || 0, poster: t.poster || 0, backlinkDay: Math.ceil((t.backlink || 0) / Math.max(1, wdays)), gmbWeek: Math.ceil((t.gmb || 0) / 4.3) },
+        done: { backlinkToday: cnt("backlink", dayStart), backlinkMonth: cnt("backlink", monStart), gmbWeek: cnt("gmb", weekStart), gmbMonth: cnt("gmb", monStart), blogMonth: cnt("blog", monStart), posterMonth: cnt("poster", monStart) },
+        ads: c.ads ? { today: today ? { sent: !!today.sent, spend: today.spend, conv: today.conv } : null, spendMonth: A.reduce((a, x) => a + (x.spend || 0), 0), leadsMonth: A.reduce((a, x) => a + (x.conv || 0), 0), days: A.length } : null,
+        keywords: { count: K.length, lastCheck: lastCheck ? new Date(lastCheck).toISOString().slice(0, 10) : null },
+      };
+    });
+    return res.json({ success: true, data });
+  } catch (err) { return fail(res, err, "myClientsDetail"); }
 }
 export async function clientKeywords(req, res) {
   try {

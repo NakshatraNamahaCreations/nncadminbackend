@@ -1,4 +1,4 @@
-import { PortalAccount, TeamMessage, TeamRead } from "../models/Portal.js";
+import { PortalAccount, TeamMessage, TeamRead, rolesOf } from "../models/Portal.js";
 import { pingTeam } from "../realtime.js";
 
 // Team chat for everyone: employees (portal login) and the admin (CRM login).
@@ -16,14 +16,14 @@ function fail(res, err, where) {
 }
 
 // Who is calling: an employee or a CRM admin
-export const empActor = (req) => ({ who: `emp:${req.portal._id}`, id: String(req.portal._id), name: req.portal.name, role: req.portal.role, admin: false });
+export const empActor = (req) => ({ who: `emp:${req.portal._id}`, id: String(req.portal._id), name: req.portal.name, role: req.portal.role, roles: rolesOf(req.portal), admin: false });
 export const adminActor = (req) => ({ who: `admin:${req.user?.id}`, id: "", name: req.actorName || "Admin", role: "admin", admin: true });
 
 const dmId = (a, b) => `dm:${[String(a), String(b)].sort().join(":")}`;
 function canUse(me, ch) {
   if (ch === "all") return true;
-  if (ch === "dev") return me.admin || DEV.includes(me.role);
-  if (ch === "seo") return me.admin || SEO.includes(me.role);
+  if (ch === "dev") return me.admin || (me.roles || [me.role]).some(r => DEV.includes(r));
+  if (ch === "seo") return me.admin || (me.roles || [me.role]).some(r => SEO.includes(r));
   if (ch.startsWith("dm:")) return !me.admin && ch.split(":").slice(1).includes(me.id);
   return false;
 }

@@ -1,7 +1,7 @@
 import mongoose from "mongoose";
 import bcrypt from "bcryptjs";
 import crypto from "crypto";
-import { PortalAccount, PortalWork, PortalTask, PortalMeeting, PortalBlocker, PortalDay, PortalAttendance, PortalSetting, PORTAL_ROLES, notify } from "../models/Portal.js";
+import { PortalAccount, PortalWork, PortalTask, PortalMeeting, PortalBlocker, PortalDay, PortalAttendance, PortalSetting, PORTAL_ROLES, notify , rolesOf } from "../models/Portal.js";
 import { SeoClient, SeoMember } from "../models/SeoTeam.js";
 import Lead from "../models/Lead.js";
 import Developer from "../models/Developer.js";
@@ -29,12 +29,13 @@ async function worksOn(accs) {
   const seoIds = accs.filter(a => a.seoMember).map(a => a.seoMember);
   const devIds = accs.filter(a => a.developer).map(a => a.developer);
   const [clients, leads] = await Promise.all([
-    seoIds.length ? SeoClient.find({ $or: [{ seo: { $in: seoIds } }, { ads: { $in: seoIds } }, { design: { $in: seoIds } }] }).select("name seo ads design").lean() : [],
+    seoIds.length ? SeoClient.find({ $or: [{ seo: { $in: seoIds } }, { ads: { $in: seoIds } }, { design: { $in: seoIds } }, { members: { $in: seoIds } }] }).select("name seo ads design members").lean() : [],
     devIds.length ? Lead.find({ developers: { $in: devIds } }).select("name business company projectStage projectCompleted developers").sort({ updatedAt: -1 }).lean() : [],
   ]);
   return (a) => {
     const L = [];
-    if (a.seoMember) clients.filter(c => String(c[SEO_FIELD[a.role]] || "") === String(a.seoMember)).forEach(c => L.push({ id: String(c._id), name: c.name, kind: "client", stage: "" }));
+    const F = [...new Set(rolesOf(a).map(r => SEO_FIELD[r]).filter(Boolean))];
+    if (a.seoMember) clients.filter(c => (c.members || []).some(x => String(x) === String(a.seoMember)) || F.some(f => String(c[f] || "") === String(a.seoMember))).forEach(c => L.push({ id: String(c._id), name: c.name, kind: "client", stage: "" }));
     if (a.developer) leads.filter(l => (l.developers || []).some(d => String(d) === String(a.developer))).forEach(l => L.push({ id: String(l._id), name: pname(l), kind: "project", stage: stageOf(l) }));
     return L;
   };
@@ -65,7 +66,8 @@ export async function createAccount(req, res) {
     if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) return res.status(400).json({ success: false, message: "Enter a valid email" });
     checkPassword(pw);
     if (await PortalAccount.exists({ email })) return res.status(409).json({ success: false, message: "An employee with this email already exists" });
-    const acc = await PortalAccount.create({ name, email, phone: phone || "-", role, password: await bcrypt.hash(pw, 10), status: "active", approvedBy: req.actorName || "Admin" });
+    const extra = (Array.isArray(b.roles) ? b.roles : []).map(str).filter(r => PORTAL_ROLES.includes(r) && r !== role);
+    const acc = await PortalAccount.create({ name, email, phone: phone || "-", role, roles: [...new Set(extra)], password: await bcrypt.hash(pw, 10), status: "active", approvedBy: req.actorName || "Admin" });
     const linked = await ensureLinks(acc.toObject());
     if (linked.developer && Array.isArray(b.projectIds) && b.projectIds.length) await setProjects(linked, b.projectIds);
     return res.status(201).json({ success: true, data: { id: String(acc._id) } });
@@ -96,7 +98,7 @@ export async function listAccounts(req, res) {
     return res.json({
       success: true,
       data: accs.map(a => ({
-        id: String(a._id), name: a.name, email: a.email, phone: a.phone, role: a.role, status: a.status, mustChange: a.mustChange,
+        id: String(a._id), name: a.name, email: a.email, phone: a.phone, role: a.role, roles: rolesOf(a), status: a.status, mustChange: a.mustChange,
         created: a.createdAt, lastLogin: a.lastLogin, logins: a.logins || 0, works: w(a), orphan: !!orphan(a),
       })),
     });
@@ -115,6 +117,7 @@ export async function updateAccount(req, res) {
       acc.status = b.status;
     }
     if (b.role && PORTAL_ROLES.includes(b.role)) acc.role = b.role;
+    if (Array.isArray(b.roles)) acc.roles = [...new Set(b.roles.map(str).filter(r => PORTAL_ROLES.includes(r) && r !== acc.role))];
     if (str(b.name)) acc.name = str(b.name);
     if (b.phone !== undefined && str(b.phone)) acc.phone = str(b.phone);
     await acc.save();
@@ -233,10 +236,11 @@ export async function assignTask(req, res) {
 export async function accountProjects(req, res) {
   try {
     if (req.params.id !== "new" && !isId(req.params.id)) return res.status(400).json({ success: false, message: "Invalid id" });
-    const a = req.params.id === "new" ? { role: "full" } : await PortalAccount.findById(req.params.id).select("role developer seoMember").lean();
+    const a = req.params.id === "new" ? { role: "full" } : await PortalAccount.findById(req.params.id).select("role roles developer seoMember").lean();
     if (!a) return res.status(404).json({ success: false, message: "Not found" });
     if (a.seoMember) {
-      const C = await SeoClient.find({ [SEO_FIELD[a.role] || "seo"]: a.seoMember }).select("name").sort({ name: 1 }).lean();
+      const F = [...new Set(rolesOf(a).map(r => SEO_FIELD[r]).filter(Boolean))];
+      const C = await SeoClient.find({ $or: [{ members: a.seoMember }, ...(F.length ? F : ["seo"]).map(f => ({ [f]: a.seoMember }))] }).select("name").sort({ name: 1 }).lean();
       return res.json({ success: true, data: { mine: C.map(c => ({ id: String(c._id), name: c.name, kind: "client" })), others: [] } });
     }
     const L = await Lead.find(projectFilter)

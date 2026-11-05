@@ -1,7 +1,7 @@
 import jwt from "jsonwebtoken";
 import { Server } from "socket.io";
 import { portalSecret } from "./middleware/portalAuth.js";
-import { PortalAccount } from "./models/Portal.js";
+import { PortalAccount, rolesOf } from "./models/Portal.js";
 
 // Live updates for chat. The socket only carries a short "something changed here" signal,
 // never the message itself: the screen then loads it through the normal API, which checks who may read it.
@@ -18,9 +18,10 @@ export function initRealtime(server, origin) {
     try {
       const d = jwt.verify(token, portalSecret());
       if (d.kind !== "portal") throw new Error("not portal");
-      const acc = await PortalAccount.findById(d.id).select("role status").lean();
+      const acc = await PortalAccount.findById(d.id).select("role roles status").lean();
       if (!acc || acc.status !== "active") return next(new Error("not active"));
-      socket.data.rooms = [`emp:${d.id}`, "team:all", ...(DEV.includes(acc.role) ? ["team:dev"] : []), ...(SEO.includes(acc.role) ? ["team:seo"] : [])];
+      const R = rolesOf(acc);
+      socket.data.rooms = [`emp:${d.id}`, "team:all", ...(R.some(r => DEV.includes(r)) ? ["team:dev"] : []), ...(R.some(r => SEO.includes(r)) ? ["team:seo"] : [])];
       return next();
     } catch { /* not a portal login, try the CRM login */ }
     try {

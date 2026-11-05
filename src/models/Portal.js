@@ -12,6 +12,7 @@ const PortalAccountSchema = new mongoose.Schema(
     email:      { type: String, required: true, trim: true, lowercase: true, unique: true },
     phone:      { type: String, required: true, trim: true },
     role:       { type: String, enum: PORTAL_ROLES, required: true },
+    roles:      { type: [{ type: String, enum: PORTAL_ROLES }], default: [] },   // extra roles (the main one is role)
     password:   { type: String, required: true, select: false },
     status:     { type: String, enum: ["pending", "active", "disabled"], default: "pending" },
     mustChange: { type: Boolean, default: false },   // set after an admin reset
@@ -232,6 +233,10 @@ export const TeamMessage = model("TeamMessage", TeamMessageSchema);
 export const TeamRead = model("TeamRead", TeamReadSchema);
 
 // Add a bell notification; never fails the request that caused it
+// Every role an employee has: the main role first, then the extra ones
+export const rolesOf = (a) => [...new Set([a?.role, ...(a?.roles || [])].filter(r => PORTAL_ROLES.includes(r)))];
+export const hasRole = (a, list) => rolesOf(a).some(r => list.includes(r));
+
 export async function notify(account, n) {
   try { if (account) await PortalNotification.create({ account, ...n }); }
   catch (err) { console.error("portal notify error:", err.message); }

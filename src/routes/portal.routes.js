@@ -68,6 +68,7 @@ router.get("/me", P.getMe);
 router.put("/me", P.updateMe);
 router.put("/me/password", P.changePassword);
 router.get("/assigned", P.assigned);
+router.get("/my-clients", P.myClientsDetail);
 
 router.get("/work", P.listWork);
 router.post("/work", P.addWork);
