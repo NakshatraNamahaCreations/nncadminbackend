@@ -44,6 +44,7 @@ import seoTeamRoutes from "./src/routes/seoTeam.routes.js";
 import portalRoutes from "./src/routes/portal.routes.js";
 import { initReportScheduler } from "./src/services/reportScheduler.js";
 import { getDashboardSummary } from "./src/services/dashboard.service.js";
+import { initRealtime } from "./src/realtime.js";
 
 dotenv.config();
 
@@ -121,7 +122,8 @@ app.get("/", (req, res) => {
   });
 });
 
-app.use("/uploads", express.static(uploadsPath));
+// Uploaded files are shown inside the CRM and the Employee Portal (other domains), so allow them cross-origin
+app.use("/uploads", (req, res, next) => { res.setHeader("Cross-Origin-Resource-Policy", "cross-origin"); next(); }, express.static(uploadsPath));
 
 /* ── Public website webhook (no auth, open CORS) ───────────── */
 app.use("/api/website-enquiry", websiteEnquiryRoutes);
@@ -212,11 +214,12 @@ async function startServer() {
       .then(() => console.log("Dashboard cache warmed up"))
       .catch((err) => console.warn("Dashboard warm-up failed (non-fatal):", err.message));
 
-    app.listen(PORT, () => {
+    const server = app.listen(PORT, () => {
       console.log(`API running at http://localhost:${PORT}`);
       console.log(`Uploads served at http://localhost:${PORT}/uploads`);
       console.log(`Docs served at http://localhost:${PORT}/uploads/docs`);
     });
+    initRealtime(server, corsOptions.origin);   // live chat updates (Socket.IO)
   } catch (err) {
     console.error("MongoDB connect error:", err.message || err);
     process.exit(1);

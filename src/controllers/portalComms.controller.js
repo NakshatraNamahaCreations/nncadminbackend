@@ -4,6 +4,7 @@ import CalendarEvent from "../models/CalendarEvent.js";
 import {
   PortalAccount, PortalWork, PortalTask, PortalMeeting, PortalDay, PortalNotification, PortalMessage, notify,
 } from "../models/Portal.js";
+import { pingPortalChat } from "../realtime.js";
 
 // Employee Portal: bell notifications, chat with the admin, MOM send history and the calendar
 
@@ -58,6 +59,7 @@ export async function sendMyMessage(req, res) {
     const text = str(req.body?.text).slice(0, 4000);
     if (!text) return res.status(400).json({ success: false, message: "Type a message" });
     const m = await PortalMessage.create({ account: req.portal._id, from: "emp", by: req.portal.name, text, refName: str(req.body?.refName), readEmp: true });
+    pingPortalChat(req.portal._id);
     return res.status(201).json({ success: true, data: m });
   } catch (err) { return fail(res, err, "sendMyMessage"); }
 }
@@ -95,6 +97,7 @@ export async function adminSend(req, res) {
     if (!(await PortalAccount.exists({ _id: req.params.account }))) return res.status(404).json({ success: false, message: "Employee not found" });
     const by = req.actorName || "Admin";
     const m = await PortalMessage.create({ account: req.params.account, from: "admin", by, text, refName: str(req.body?.refName), readAdmin: true });
+    pingPortalChat(req.params.account);
     await notify(req.params.account, { kind: "message", title: `Message from ${by}`, text: text.slice(0, 160), link: "/messages", from: by });
     return res.status(201).json({ success: true, data: m });
   } catch (err) { return fail(res, err, "adminSend"); }

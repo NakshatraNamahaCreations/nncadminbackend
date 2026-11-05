@@ -9,12 +9,18 @@ import * as A from "../controllers/portalAdmin.controller.js";
 import * as PP from "../controllers/portalProject.controller.js";
 import * as C from "../controllers/portalComms.controller.js";
 import { empTeam, adminTeam } from "../controllers/teamChat.controller.js";
+import * as S from "../controllers/portalShare.controller.js";
 
 const router = express.Router();
 
 const authLimiter = rateLimit({
   windowMs: 15 * 60 * 1000, max: 20, standardHeaders: true, legacyHeaders: false,
   message: { success: false, message: "Too many attempts. Please try again after 15 minutes." },
+});
+// meeting emails: a few a minute per person is plenty, and keeps the mail account safe
+const mailLimiter = rateLimit({
+  windowMs: 10 * 60 * 1000, max: 60, standardHeaders: true, legacyHeaders: false,
+  message: { success: false, message: "Too many emails. Please wait a few minutes." },
 });
 const revealLimiter = rateLimit({
   windowMs: 15 * 60 * 1000, max: 60, standardHeaders: true, legacyHeaders: false,
@@ -43,6 +49,7 @@ router.get("/admin/work", adminView, A.teamWork);
 router.put("/admin/blockers/:id/resolve", adminEdit, A.resolveBlocker);
 router.get("/admin/meetings", adminView, A.allMeetings);
 router.get("/admin/meetings/:id", adminView, A.oneMeeting);
+router.get("/admin/docs", adminView, S.adminDocs);
 router.get("/admin/tasks", adminView, A.listTasks);
 router.post("/admin/tasks", adminEdit, A.assignTask);
 router.get("/admin/threads", adminView, C.adminThreads);
@@ -99,6 +106,11 @@ router.get("/meetings/:id", P.getMeeting);
 router.post("/meetings", P.saveMeeting);
 router.put("/meetings/:id", P.saveMeeting);
 router.post("/meetings/:id/sent", C.meetingSent);
+router.post("/meetings/:id/email", mailLimiter, S.meetingEmail);
+router.get("/people", S.people);
+router.get("/docs", S.myDocs);
+router.post("/docs", S.sendDoc);
+router.patch("/docs/:id", S.docAction);
 router.delete("/meetings/:id", P.deleteMeeting);
 
 router.get("/keywords", P.clientKeywords);

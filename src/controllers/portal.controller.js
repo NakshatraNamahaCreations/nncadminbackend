@@ -458,9 +458,14 @@ export async function submitDay(req, res) {
   try {
     const date = isDay(req.body?.date) ? req.body.date : null;
     if (!date) return res.status(400).json({ success: false, message: "Invalid date" });
-    const d = await PortalDay.findOneAndUpdate({ account: req.portal._id, date },
-      { $set: { at: str(req.body?.at), note: str(req.body?.note), plan: str(req.body?.plan) } }, { new: true, upsert: true });
-    return res.json({ success: true, data: d });
+    // A day is submitted once
+    if (await PortalDay.exists({ account: req.portal._id, date })) return res.status(400).json({ success: false, message: "This day is already submitted" });
+    const d = await PortalDay.create({ account: req.portal._id, date, at: str(req.body?.at), note: str(req.body?.note), plan: str(req.body?.plan) });
+    // Submitting today also checks the employee out, if they are still checked in
+    const att = await PortalAttendance.findOne({ account: req.portal._id, date });
+    const open = att?.sessions.find(x => !x.out);
+    if (open) { open.out = new Date(); att.markModified("sessions"); await att.save(); }
+    return res.json({ success: true, data: d, attendance: att });
   } catch (err) { return fail(res, err, "submitDay"); }
 }
 
@@ -481,11 +486,13 @@ export async function markAttendance(req, res) {
     const date = isDay(b.date) ? b.date : new Date().toISOString().slice(0, 10);
     const a = await PortalAttendance.findOne({ account: req.portal._id, date }) || new PortalAttendance({ account: req.portal._id, date, sessions: [] });
     const open = a.sessions.find(s => !s.out);
+    // One check in and one check out per day
     if (b.action === "in") {
-      if (open) return res.status(400).json({ success: false, message: "You are already checked in" });
+      if (a.sessions.length) return res.status(400).json({ success: false, message: "You have already checked in today" });
       a.sessions.push({ in: new Date() });
     } else if (b.action === "out") {
-      if (!open) return res.status(400).json({ success: false, message: "Check in first" });
+      if (!a.sessions.length) return res.status(400).json({ success: false, message: "Check in first" });
+      if (!open) return res.status(400).json({ success: false, message: "You have already checked out today" });
       open.out = new Date();
     } else return res.status(400).json({ success: false, message: "Unknown action" });
     a.markModified("sessions");
@@ -504,7 +511,8 @@ const meetingFields = (b) => {
     ...(Array.isArray(b.files) ? { files: cleanFiles(b.files) } : {}),
     refName: str(b.refName), title: str(b.title), date: isDay(b.date) ? b.date : new Date().toISOString().slice(0, 10), time: str(b.time),
     dur: Math.max(0.25, num(b.dur) || 1), mode: str(b.mode) || "Google Meet", theirs: str(b.theirs), ours: str(b.ours),
-    notes: String(b.notes || ""), images, momTxt: String(b.momTxt || ""), sentWa: str(b.sentWa), sentMail: str(b.sentMail),
+    notes: String(b.notes || ""), momTxt: String(b.momTxt || ""), sentWa: str(b.sentWa), sentMail: str(b.sentMail),
+    clientEmail: str(b.clientEmail).toLowerCase().slice(0, 300), clientPhone: str(b.clientPhone).slice(0, 20), link: str(b.link).slice(0, 500),
   };
 };
 export async function listMeetings(req, res) {
@@ -529,7 +537,8 @@ export async function saveMeeting(req, res) {
   try {
     const f = meetingFields(req.body || {});
     if (!f.title) return res.status(400).json({ success: false, message: "Say what the meeting was about" });
-    if (!f.notes.trim() && !f.images?.length && !f.files?.length && !req.params.id) return res.status(400).json({ success: false, message: "Write some notes or attach a photo of the notes" });
+    // a meeting planned ahead (with the invite) has no notes yet
+    if (!f.notes.trim() && !f.images?.length && !f.files?.length && !req.params.id && !req.body?.planned) return res.status(400).json({ success: false, message: "Write some notes or attach a photo of the notes" });
     let m;
     if (req.params.id) {
       if (!isId(req.params.id)) return res.status(400).json({ success: false, message: "Invalid id" });

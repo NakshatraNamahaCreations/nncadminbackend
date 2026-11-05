@@ -274,6 +274,11 @@ export async function getEnquiryStats(req, res) {
             { $match: { seen: false, convertedToLead: { $ne: true } } },
             { $count: "count" },
           ],
+          // New leads still waiting for a first call (last 14 days): the sidebar badge and All Leads → Today
+          fresh: [
+            { $match: { status: "new", convertedToLead: { $ne: true }, createdAt: { $gte: new Date(now.getTime() - 14 * 864e5) } } },
+            { $count: "count" },
+          ],
           // Dashboard cards on the All Leads page
           converted: [
             { $match: { convertedToLead: true } },
@@ -326,6 +331,7 @@ export async function getEnquiryStats(req, res) {
         overdueFollowUps:  agg.overdueFollowUps[0]?.count  || 0,
         upcomingFollowUps: agg.upcomingFollowUps[0]?.count || 0,
         unseen:            agg.unseen[0]?.count            || 0,
+        fresh:             agg.fresh[0]?.count             || 0,
         converted:          agg.converted[0]?.count          || 0,
         lost:               agg.lost[0]?.count               || 0,
         scheduledFollowUps: agg.scheduledFollowUps[0]?.count || 0,

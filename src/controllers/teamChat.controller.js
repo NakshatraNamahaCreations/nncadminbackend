@@ -1,4 +1,5 @@
 import { PortalAccount, TeamMessage, TeamRead } from "../models/Portal.js";
+import { pingTeam } from "../realtime.js";
 
 // Team chat for everyone: employees (portal login) and the admin (CRM login).
 // Group channels: "all" (everyone), "dev" (development, design, testing), "seo" (SEO, Ads, graphics).
@@ -80,6 +81,7 @@ const handlers = (actor) => ({
         if (!(await PortalAccount.exists({ _id: other, status: "active" }))) return res.status(404).json({ success: false, message: "This person is not active" });
       }
       const m = await TeamMessage.create({ channel: ch, who: me.who, name: me.name, role: me.role, text });
+      pingTeam(ch);
       await TeamRead.updateOne({ who: me.who, channel: ch }, { $set: { at: new Date() } }, { upsert: true });
       return res.status(201).json({ success: true, data: { ...m.toObject(), mine: true } });
     } catch (err) { return fail(res, err, "send"); }

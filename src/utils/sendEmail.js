@@ -28,7 +28,7 @@ const makeGmailTransport = () =>
  * Send an email.
  * Tries Hostinger SMTP first; falls back to Gmail if Hostinger fails.
  */
-const sendEmail = async ({ to, subject, html, replyTo }) => {
+const sendEmail = async ({ to, subject, html, replyTo, cc }) => {
   const hostingerReady =
     process.env.EMAIL_USER && process.env.EMAIL_PASS && process.env.EMAIL_HOST;
   const gmailReady =
@@ -41,6 +41,7 @@ const sendEmail = async ({ to, subject, html, replyTo }) => {
   const buildOptions = (fromAddr) => {
     const opts = { from: `"NNC Nakshatra Namaha Creations" <${fromAddr}>`, to, subject, html };
     if (replyTo) opts.replyTo = replyTo;
+    if (cc) opts.cc = cc;
     return opts;
   };
 

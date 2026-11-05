@@ -81,6 +81,10 @@ const PortalMeetingSchema = new mongoose.Schema(
     momTxt:   { type: String, default: "" },
     sentWa:   { type: String, default: "" },
     sentMail: { type: String, default: "" },
+    // the client, for the invite and minutes emails
+    clientEmail: { type: String, default: "" },
+    clientPhone: { type: String, default: "" },
+    link:     { type: String, default: "" },
     // every time the minutes were sent: WhatsApp or email, to whom
     sendLog:  { type: [{ via: String, to: String, at: Date, _id: false }], default: [] },
   },
@@ -191,11 +195,33 @@ const PortalSettingSchema = new mongoose.Schema(
   { timestamps: true, collection: "portal_settings" }
 );
 
+/* Documents an employee sends to a colleague (a tester to a developer), with a message and replies */
+const DocFile = { url: String, name: String, type: { type: String }, size: Number, _id: false };
+const PortalDocSchema = new mongoose.Schema(
+  {
+    from:     { type: ObjectId, ref: "PortalAccount", required: true },
+    fromName: { type: String, default: "" },
+    to:       { type: ObjectId, ref: "PortalAccount", required: true },
+    toName:   { type: String, default: "" },
+    refName:  { type: String, default: "" },
+    title:    { type: String, required: true, trim: true },
+    text:     { type: String, default: "" },
+    files:    { type: [DocFile], default: [] },
+    seenAt:   { type: Date, default: null },
+    done:     { type: Boolean, default: false },
+    replies:  { type: [{ by: ObjectId, name: String, text: String, files: { type: [DocFile], default: [] }, at: Date, _id: false }], default: [] },
+  },
+  { timestamps: true, collection: "portal_docs" }
+);
+PortalDocSchema.index({ to: 1, createdAt: -1 });
+PortalDocSchema.index({ from: 1, createdAt: -1 });
+
 const model = (name, schema) => mongoose.models[name] || mongoose.model(name, schema);
 export const PortalAccount = model("PortalAccount", PortalAccountSchema);
 export const PortalWork    = model("PortalWork", PortalWorkSchema);
 export const PortalTask    = model("PortalTask", PortalTaskSchema);
 export const PortalMeeting = model("PortalMeeting", PortalMeetingSchema);
+export const PortalDoc     = model("PortalDoc", PortalDocSchema);
 export const PortalBlocker = model("PortalBlocker", PortalBlockerSchema);
 export const PortalDay     = model("PortalDay", PortalDaySchema);
 export const PortalAttendance = model("PortalAttendance", PortalAttendanceSchema);
