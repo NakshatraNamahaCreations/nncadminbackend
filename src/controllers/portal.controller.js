@@ -181,7 +181,7 @@ export async function assigned(req, res) {
 
 const SEO_TYPES = { backlink: "backlink", blog: "blog", gmb: "gmb", poster: "poster", onpage: "other", optimise: "other", negative: "other", newad: "other",
   webcontent: "other", blogcontent: "other", landing: "other", campaign: "other", social: "other", position: "other", monthly: "other", docs: "other",
-  kwresearch: "other", metaads: "other" };
+  kwresearch: "other", metaads: "other", tracking: "other" };
 
 async function resolveRef(acc, refType, refId) {
   if (!refId || !isId(refId)) return null;
