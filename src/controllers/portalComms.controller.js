@@ -5,6 +5,7 @@ import {
   PortalAccount, PortalWork, PortalTask, PortalMeeting, PortalDay, PortalNotification, PortalMessage, notify,
 } from "../models/Portal.js";
 import { pingPortalChat } from "../realtime.js";
+import { noEmoji } from "../utils/noEmoji.js";
 
 // Employee Portal: bell notifications, chat with the admin, MOM send history and the calendar
 
@@ -58,8 +59,8 @@ export async function myMessages(req, res) {
 }
 export async function sendMyMessage(req, res) {
   try {
-    const text = str(req.body?.text).slice(0, 4000);
-    if (!text) return res.status(400).json({ success: false, message: "Type a message" });
+    const text = str(noEmoji(req.body?.text)).slice(0, 4000);
+    if (!text) return res.status(400).json({ success: false, message: "Type a message (emojis are not allowed in chat)" });
     const m = await PortalMessage.create({ account: req.portal._id, from: "emp", by: req.portal.name, text, refName: str(req.body?.refName), readEmp: true });
     pingPortalChat(req.portal._id);
     return res.status(201).json({ success: true, data: m });
@@ -96,8 +97,8 @@ export async function adminMessages(req, res) {
 export async function adminSend(req, res) {
   try {
     if (!isId(req.params.account)) return res.status(400).json({ success: false, message: "Invalid id" });
-    const text = str(req.body?.text).slice(0, 4000);
-    if (!text) return res.status(400).json({ success: false, message: "Type a message" });
+    const text = str(noEmoji(req.body?.text)).slice(0, 4000);
+    if (!text) return res.status(400).json({ success: false, message: "Type a message (emojis are not allowed in chat)" });
     if (!(await PortalAccount.exists({ _id: req.params.account }))) return res.status(404).json({ success: false, message: "Employee not found" });
     const by = req.actorName || "Admin";
     const m = await PortalMessage.create({ account: req.params.account, from: "admin", by, text, refName: str(req.body?.refName), readAdmin: true });

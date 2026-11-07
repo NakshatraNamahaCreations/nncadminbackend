@@ -1,5 +1,6 @@
 import { PortalAccount, TeamMessage, TeamRead, rolesOf } from "../models/Portal.js";
 import { pingTeam } from "../realtime.js";
+import { noEmoji } from "../utils/noEmoji.js";
 
 // Team chat for everyone: employees (portal login) and the admin (CRM login).
 // Group channels: "all" (everyone), "dev" (development, design, testing), "seo" (SEO, Ads, graphics).
@@ -85,9 +86,9 @@ const handlers = (actor) => ({
   // POST …/team/messages { channel, text }
   async send(req, res) {
     try {
-      const me = actor(req), ch = str(req.body?.channel), text = str(req.body?.text).slice(0, 4000);
+      const me = actor(req), ch = str(req.body?.channel), text = str(noEmoji(req.body?.text)).slice(0, 4000);
       if (!canUse(me, ch)) return res.status(403).json({ success: false, message: "You cannot post in this chat" });
-      if (!text) return res.status(400).json({ success: false, message: "Type a message" });
+      if (!text) return res.status(400).json({ success: false, message: "Type a message (emojis are not allowed in chat)" });
       if (ch.startsWith("dm:")) {
         const other = ch.split(":").slice(1).find(x => x !== me.id);
         if (!(await PortalAccount.exists({ _id: other, status: "active" }))) return res.status(404).json({ success: false, message: "This person is not active" });
