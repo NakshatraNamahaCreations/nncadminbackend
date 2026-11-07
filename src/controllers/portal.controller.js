@@ -180,7 +180,8 @@ export async function assigned(req, res) {
 /* ───────── work log ───────── */
 
 const SEO_TYPES = { backlink: "backlink", blog: "blog", gmb: "gmb", poster: "poster", onpage: "other", optimise: "other", negative: "other", newad: "other",
-  webcontent: "other", blogcontent: "other", landing: "other", campaign: "other", social: "other", position: "other", monthly: "other", docs: "other" };
+  webcontent: "other", blogcontent: "other", landing: "other", campaign: "other", social: "other", position: "other", monthly: "other", docs: "other",
+  kwresearch: "other", metaads: "other" };
 
 async function resolveRef(acc, refType, refId) {
   if (!refId || !isId(refId)) return null;
@@ -223,8 +224,9 @@ export async function addWork(req, res) {
     const per = Math.round((hrs / items.length) * 100) / 100;
     const out = [];
     for (const it of items) {
-      const meta = it.meta && typeof it.meta === "object" ? it.meta : {};
+      const meta = it.meta && typeof it.meta === "object" ? { ...it.meta } : {};
       if (extra) meta.extra = true;
+      if (meta.files !== undefined) { meta.files = cleanFiles(meta.files); if (!meta.files.length) delete meta.files; }
       if (type === "bug") {
         const last = await PortalWork.find({ type: "bug" }).sort({ createdAt: -1 }).limit(1).lean();
         const n = last.length ? (parseInt(String(last[0].meta?.bug || "BUG-0").slice(4), 10) || 0) + 1 : 1;
@@ -310,6 +312,11 @@ const BUG_STATUS = { open: "Open", progress: "In progress", info: "Needs more in
 // POST /api/portal/uploads (multipart "file") → { url, name, type, size }
 export async function uploadFile(req, res) {
   if (!req.file) return res.status(400).json({ success: false, message: "Choose a file" });
+  // screen recordings may be up to 100 MB; everything else up to 25 MB
+  if (!String(req.file.mimetype).startsWith("video/") && req.file.size > 25 * 1024 * 1024) {
+    try { const fs = await import("fs"); fs.unlinkSync(req.file.path); } catch { /* already gone */ }
+    return res.status(400).json({ success: false, message: `${req.file.originalname} is over 25 MB` });
+  }
   return res.status(201).json({ success: true, data: { url: `/uploads/docs/${req.file.filename}`, name: req.file.originalname, type: req.file.mimetype, size: req.file.size } });
 }
 

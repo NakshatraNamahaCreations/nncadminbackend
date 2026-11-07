@@ -23,6 +23,7 @@ const fileFilter = (req, file, cb) => {
   try {
     const ok =
       file.mimetype?.startsWith("image/") ||
+      file.mimetype?.startsWith("video/") ||
       file.mimetype === "application/pdf" ||
       file.mimetype === "application/msword" ||
       file.mimetype === "application/vnd.openxmlformats-officedocument.wordprocessingml.document" ||
@@ -40,5 +41,5 @@ const fileFilter = (req, file, cb) => {
 export const docUpload = multer({
   storage,
   fileFilter,
-  limits: { fileSize: 25 * 1024 * 1024 },
+  limits: { fileSize: 100 * 1024 * 1024 },   // videos; other files are held to 25 MB after upload
 });
