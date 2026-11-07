@@ -54,6 +54,7 @@ router.get("/admin/meetings/:id", adminView, A.oneMeeting);
 router.delete("/admin/meetings/:id", adminEdit, A.deleteMeetingAdmin);
 router.get("/admin/docs", adminView, S.adminDocs);
 router.get("/admin/tasks", adminView, A.listTasks);
+router.get("/admin/plans", adminView, A.plans);
 router.post("/admin/tasks", adminEdit, A.assignTask);
 router.get("/admin/threads", adminView, C.adminThreads);
 router.get("/admin/messages/:account", adminView, C.adminMessages);
@@ -74,7 +75,7 @@ router.use(protectPortal);
 // nothing can be logged, sent or changed until the next morning. Reading still works.
 const OPEN_AFTER_CHECKOUT = ["/attendance", "/notifications/read", "/me/password"];
 router.use(async (req, res, next) => {
-  if (req.method === "GET" || OPEN_AFTER_CHECKOUT.includes(req.path)) return next();
+  if (req.method === "GET" || OPEN_AFTER_CHECKOUT.includes(req.path) || (req.method === "PATCH" && /^\/bugs\/[^/]+$/.test(req.path) && req.body?.action === "seen")) return next();
   try {
     const date = new Date(Date.now() + 330 * 60000).toISOString().slice(0, 10);
     const closed = await PortalAttendance.exists({ account: req.portal._id, date, "sessions.0": { $exists: true }, sessions: { $not: { $elemMatch: { out: null } } } });
@@ -106,6 +107,10 @@ router.get("/blockers", P.listBlockers);
 router.post("/blockers", P.addBlocker);
 router.patch("/blockers/:id/resolve", P.resolveBlocker);
 router.post("/days", P.submitDay);
+router.get("/plans", P.getPlan);
+router.post("/plans", P.addPlan);
+router.patch("/plans/:item", P.planItem);
+router.delete("/plans/:item", P.removePlanItem);
 router.get("/attendance", P.getAttendance);
 router.post("/attendance", P.markAttendance);
 

@@ -1,7 +1,7 @@
 import mongoose from "mongoose";
 import bcrypt from "bcryptjs";
 import crypto from "crypto";
-import { PortalAccount, PortalWork, PortalTask, PortalMeeting, PortalBlocker, PortalDay, PortalAttendance, PortalSetting, PortalMessage, PortalDoc, PORTAL_ROLES, notify , rolesOf } from "../models/Portal.js";
+import { PortalAccount, PortalWork, PortalTask, PortalMeeting, PortalBlocker, PortalDay, PortalAttendance, PortalPlan, PortalSetting, PortalMessage, PortalDoc, PORTAL_ROLES, notify , rolesOf } from "../models/Portal.js";
 import { SeoClient, SeoMember } from "../models/SeoTeam.js";
 import Lead from "../models/Lead.js";
 import Developer from "../models/Developer.js";
@@ -270,17 +270,27 @@ export async function counts(req, res) {
   try {
     const dflt = new Date(Date.now() - 864e5);
     const since = (k) => { const d = new Date(String(req.query[k] || "")); return isNaN(d) ? dflt : d; };
-    const [people, messages, work, meetings, docs, tasks] = await Promise.all([
+    const [people, messages, work, meetings, docs, tasks, plans] = await Promise.all([
       PortalAccount.countDocuments({ status: "pending" }),
       PortalMessage.countDocuments({ from: "emp", readAdmin: false }),
       PortalWork.countDocuments({ createdAt: { $gt: since("work") } }),
       PortalMeeting.countDocuments({ createdAt: { $gt: since("meetings") } }),
       PortalDoc.countDocuments({ createdAt: { $gt: since("docs") } }),
       PortalTask.countDocuments({ from: { $ne: "me" }, status: { $ne: "todo" }, updatedAt: { $gt: since("tasks") } }),
+      PortalPlan.countDocuments({ date: new Date(Date.now() + 330 * 60000).toISOString().slice(0, 10), "items.0": { $exists: true }, updatedAt: { $gt: since("plans") } }),
     ]);
-    const data = { people, messages, work, meetings, docs, tasks };
+    const data = { people, messages, work, meetings, docs, tasks, plans };
     return res.json({ success: true, data, total: Object.values(data).reduce((a, n) => a + n, 0) });
   } catch (err) { return fail(res, err, "counts"); }
+}
+
+// GET /api/portal/admin/plans?date= → every employee's plan for that day (today, India time, by default)
+export async function plans(req, res) {
+  try {
+    const date = isDay(req.query.date) ? req.query.date : new Date(Date.now() + 330 * 60000).toISOString().slice(0, 10);
+    const L = await PortalPlan.find({ date }).sort({ updatedAt: -1 }).populate("account", "name role roles branch status").lean();
+    return res.json({ success: true, data: { date, plans: L.filter(p => p.account) } });
+  } catch (err) { return fail(res, err, "plans"); }
 }
 
 export async function listTasks(req, res) {

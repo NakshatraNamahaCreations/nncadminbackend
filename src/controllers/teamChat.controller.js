@@ -65,9 +65,21 @@ const handlers = (actor) => ({
     try {
       const me = actor(req), ch = str(req.query.channel);
       if (!canUse(me, ch)) return res.status(403).json({ success: false, message: "You cannot open this chat" });
-      const L = await TeamMessage.find({ channel: ch }).sort({ createdAt: -1 }).limit(150).lean();
-      await TeamRead.updateOne({ who: me.who, channel: ch }, { $set: { at: new Date() } }, { upsert: true });
-      return res.json({ success: true, data: L.reverse().map(m => ({ ...m, mine: m.who === me.who })) });
+      const [L, others] = await Promise.all([
+        TeamMessage.find({ channel: ch }).sort({ createdAt: -1 }).limit(150).lean(),
+        TeamRead.find({ channel: ch, who: { $ne: me.who } }).select("who at").lean(),
+      ]);
+      const prev = await TeamRead.findOneAndUpdate({ who: me.who, channel: ch }, { $set: { at: new Date() } }, { upsert: true, new: false }).lean();
+      // I just read messages from others that were new to me: their screens show "seen" straight away
+      const lastOther = L.find(m => m.who !== me.who);
+      if (lastOther && (!prev || new Date(prev.at) < new Date(lastOther.createdAt))) pingTeam(ch);
+      // only people who can read this chat count (a direct message has just the other person)
+      const data = L.reverse().map(m => {
+        if (m.who !== me.who) return { ...m, mine: false };
+        const seenBy = others.filter(r => new Date(r.at) >= new Date(m.createdAt)).length;
+        return { ...m, mine: true, seenBy };
+      });
+      return res.json({ success: true, data });
     } catch (err) { return fail(res, err, "messages"); }
   },
   // POST …/team/messages { channel, text }

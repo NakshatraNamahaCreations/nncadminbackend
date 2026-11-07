@@ -119,6 +119,18 @@ const PortalDaySchema = new mongoose.Schema(
 );
 PortalDaySchema.index({ account: 1, date: 1 }, { unique: true });
 
+/* Plans for the day: what the employee means to get done, ticked off as they go (the admin sees it in the CRM) */
+const PortalPlanSchema = new mongoose.Schema(
+  {
+    account: { type: ObjectId, ref: "PortalAccount", required: true },
+    date:    { type: String, required: true },         // "YYYY-MM-DD" (India time)
+    items:   { type: [{ text: { type: String, required: true, trim: true }, refName: { type: String, default: "" }, done: { type: Boolean, default: false }, doneAt: { type: Date, default: null }, at: { type: Date, default: Date.now } }], default: [] },
+  },
+  { timestamps: true, collection: "portal_plans" }
+);
+PortalPlanSchema.index({ account: 1, date: 1 }, { unique: true });
+PortalPlanSchema.index({ date: -1 });
+
 /* Check in and check out times for one employee and day; several sessions if they step out */
 const PortalAttendanceSchema = new mongoose.Schema(
   {
@@ -156,6 +168,7 @@ const PortalMessageSchema = new mongoose.Schema(
     refName:   { type: String, default: "" },   // optional project or client it is about
     readEmp:   { type: Boolean, default: false },
     readAdmin: { type: Boolean, default: false },
+    seenAt:    { type: Date, default: null },     // when the other side read it
   },
   { timestamps: true, collection: "portal_messages" }
 );
@@ -227,6 +240,7 @@ export const PortalDoc     = model("PortalDoc", PortalDocSchema);
 export const PortalBlocker = model("PortalBlocker", PortalBlockerSchema);
 export const PortalDay     = model("PortalDay", PortalDaySchema);
 export const PortalAttendance = model("PortalAttendance", PortalAttendanceSchema);
+export const PortalPlan    = model("PortalPlan", PortalPlanSchema);
 export const PortalSetting = model("PortalSetting", PortalSettingSchema);
 export const PortalNotification = model("PortalNotification", PortalNotificationSchema);
 export const PortalMessage = model("PortalMessage", PortalMessageSchema);

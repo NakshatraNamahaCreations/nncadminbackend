@@ -47,10 +47,12 @@ export async function readNotifications(req, res) {
 export async function myMessages(req, res) {
   try {
     const L = await PortalMessage.find({ account: req.portal._id }).sort({ createdAt: -1 }).limit(300).lean();
-    await Promise.all([
-      PortalMessage.updateMany({ account: req.portal._id, from: "admin", readEmp: false }, { readEmp: true }),
+    const [r] = await Promise.all([
+      PortalMessage.updateMany({ account: req.portal._id, from: "admin", readEmp: false }, { readEmp: true, seenAt: new Date() }),
       PortalNotification.updateMany({ account: req.portal._id, kind: "message", read: false }, { read: true }),
     ]);
+    // the admin's screen shows "seen" straight away
+    if (r.modifiedCount) pingPortalChat(req.portal._id);
     return res.json({ success: true, data: L.reverse() });
   } catch (err) { return fail(res, err, "myMessages"); }
 }
@@ -85,7 +87,9 @@ export async function adminMessages(req, res) {
   try {
     if (!isId(req.params.account)) return res.status(400).json({ success: false, message: "Invalid id" });
     const L = await PortalMessage.find({ account: req.params.account }).sort({ createdAt: -1 }).limit(300).lean();
-    await PortalMessage.updateMany({ account: req.params.account, from: "emp", readAdmin: false }, { readAdmin: true });
+    const r = await PortalMessage.updateMany({ account: req.params.account, from: "emp", readAdmin: false }, { readAdmin: true, seenAt: new Date() });
+    // the employee's screen shows "seen" straight away
+    if (r.modifiedCount) pingPortalChat(req.params.account);
     return res.json({ success: true, data: L.reverse() });
   } catch (err) { return fail(res, err, "adminMessages"); }
 }
