@@ -154,7 +154,7 @@ export async function calendar(req, res) {
     const pIds = projects.map(p => p._id);
     const name = (id) => { const p = projects.find(x => String(x._id) === String(id)); return p ? pname(p) : ""; };
     const [meetings, crm, tasks, days, work] = await Promise.all([
-      PortalMeeting.find({ account: me._id, date: { $gte: from, $lte: to } }).select("title refName date time dur mode momTxt sendLog").lean(),
+      PortalMeeting.find({ account: me._id, date: { $gte: from, $lte: to } }).select("title refName date time dur mode momTxt sendLog link").lean(),
       pIds.length ? CalendarEvent.find({ leadId: { $in: pIds }, type: { $in: ["demo", "client_response", "call_followup"] }, status: { $ne: "cancelled" }, date: { $gte: start, $lte: end } })
         .select("leadId leadName leadBusiness type title date time duration mode link").lean() : [],
       PortalTask.find({ account: me._id, due: { $gte: from, $lte: to } }).select("title refName due status from").lean(),
@@ -164,7 +164,7 @@ export async function calendar(req, res) {
         .select("account type title refName date hrs meta").populate("account", "name").limit(2000).lean(),
     ]);
     const out = [];
-    meetings.forEach(m => out.push({ id: `m${m._id}`, kind: "meeting", date: m.date, time: m.time, title: m.title, refName: m.refName, text: m.mode, mom: !!m.momTxt, sent: (m.sendLog || []).length }));
+    meetings.forEach(m => out.push({ id: `m${m._id}`, kind: "meeting", date: m.date, time: m.time, title: m.title, refName: m.refName, text: m.mode, mom: !!m.momTxt, sent: (m.sendLog || []).length, link: m.link || "", mid: String(m._id) }));
     crm.forEach(e => out.push({ id: `c${e._id}`, kind: "client", date: day(e.date), time: e.time, title: e.title || (e.type === "demo" ? "Client meeting" : "Client follow-up"),
       refName: name(e.leadId) || e.leadBusiness || e.leadName, text: { meet: "Google Meet", office: "In person", phone: "Phone call" }[e.mode] || "", link: e.link }));
     tasks.forEach(t => out.push({ id: `t${t._id}`, kind: "task", date: t.due, title: t.title, refName: t.refName, text: t.from === "me" ? "my task" : `from ${t.from}`, done: t.status === "done" }));

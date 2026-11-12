@@ -325,8 +325,10 @@ export async function uploadFile(req, res) {
 export async function sendBugs(req, res) {
   try {
     const me = req.portal, b = req.body || {};
-    const ref = await resolveRef(me, "project", b.refId);
-    if (!ref) return res.status(400).json({ success: false, message: "Pick one of your projects" });
+    // one of my projects, or "Other": a project typed by the tester that is not in the list
+    let ref = isId(b.refId) ? await resolveRef(me, "project", b.refId) : null;
+    if (!ref && !isId(b.refId) && str(b.refName)) ref = { refType: "", refId: null, refName: str(b.refName).slice(0, 160) };
+    if (!ref) return res.status(400).json({ success: false, message: "Pick one of your projects, or choose Other and type the project name" });
     const dev = isId(b.assign) ? await PortalAccount.findOne({ _id: b.assign, status: "active" }).select("name").lean() : null;
     if (!dev) return res.status(400).json({ success: false, message: "Pick the developer" });
     const items = (Array.isArray(b.items) ? b.items : []).slice(0, 100).filter(i => str(i.title));
@@ -581,7 +583,7 @@ const meetingFields = (b) => {
     ...(Array.isArray(b.images) ? { images } : {}),
     ...(Array.isArray(b.files) ? { files: cleanFiles(b.files) } : {}),
     refName: str(b.refName), title: str(b.title), date: isDay(b.date) ? b.date : new Date().toISOString().slice(0, 10), time: str(b.time),
-    dur: Math.max(0.25, num(b.dur) || 1), mode: str(b.mode) || "Google Meet", theirs: str(b.theirs), ours: str(b.ours),
+    dur: Math.round(Math.max(1 / 12, num(b.dur) || 1) * 100) / 100, mode: str(b.mode) || "Google Meet", theirs: str(b.theirs), ours: str(b.ours),
     notes: String(b.notes || ""), momTxt: String(b.momTxt || ""), sentWa: str(b.sentWa), sentMail: str(b.sentMail),
     clientEmail: str(b.clientEmail).toLowerCase().slice(0, 300), clientPhone: str(b.clientPhone).slice(0, 20), link: str(b.link).slice(0, 500),
   };
