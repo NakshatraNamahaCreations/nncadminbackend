@@ -7,6 +7,7 @@ import Developer from "../models/Developer.js";
 import Lead from "../models/Lead.js";
 import { signPortalToken, forgetPortal } from "../middleware/portalAuth.js";
 import { notify } from "../models/Portal.js";
+import { syncFromPortal } from "./attendance.controller.js";
 import { notifyProjectTeam } from "./portalComms.controller.js";
 
 const isId = (v) => mongoose.Types.ObjectId.isValid(v);
@@ -614,6 +615,8 @@ export async function markAttendance(req, res) {
     } else return res.status(400).json({ success: false, message: "Unknown action" });
     a.markModified("sessions");
     await a.save();
+    // the admin's attendance (present / late / half day) follows the check in and check out
+    try { await syncFromPortal(req.portal, date, a.sessions); } catch (e) { console.error("attendance sync:", e.message); }
     return res.json({ success: true, data: a });
   } catch (err) { return fail(res, err, "markAttendance"); }
 }
@@ -753,6 +756,25 @@ export async function clientKeywords(req, res) {
     return res.json({ success: true, data: kws.map(k => ({ id: String(k._id), keyword: k.keyword, hist: (k.hist || []).map(h => ({ date: new Date(h.date).toISOString().slice(0, 10), pos: h.pos })) })) });
   } catch (err) { return fail(res, err, "clientKeywords"); }
 }
+// POST /api/portal/keywords { client, rows: [{ keyword, pos? }] } → add agreed keywords for my client.
+// A position given here is saved for today, so it becomes the keyword's day 1.
+export async function addKeywords(req, res) {
+  try {
+    const c = await myClientOr404(req, res, req.body?.client); if (!c) return undefined;
+    const date = utcDay(istDay());
+    let added = 0, skipped = 0;
+    for (const r of (Array.isArray(req.body?.rows) ? req.body.rows : []).slice(0, 300)) {
+      const keyword = str(r.keyword).replace(/\s+/g, " ").slice(0, 200);
+      if (!keyword) continue;
+      if (await SeoKeyword.exists({ client: c._id, keyword })) { skipped++; continue; }
+      const p = parseInt(r.pos, 10);
+      await SeoKeyword.create({ client: c._id, keyword, hist: p > 0 ? [{ date, pos: p <= 100 ? p : null, url: "" }] : [] });
+      added++;
+    }
+    if (!added) return res.status(400).json({ success: false, message: skipped ? "These keywords are already added" : "Write at least one keyword" });
+    return res.status(201).json({ success: true, added, skipped });
+  } catch (err) { return fail(res, err, "addKeywords"); }
+}
 // POST /api/portal/ranks { client, date, rows: [{ keyword, pos }] }
 export async function saveRanks(req, res) {
   try {
@@ -784,17 +806,26 @@ export async function clientAds(req, res) {
     return res.json({ success: true, data: L.map(r => ({ ...r, date: new Date(r.date).toISOString().slice(0, 10) })) });
   } catch (err) { return fail(res, err, "clientAds"); }
 }
-// POST /api/portal/ads { client, date, spend, clicks, impr, conv, terms, negs, notes }
+// POST /api/portal/ads { client, date, platform: google|meta, campaign, spend, clicks, impr, ctr, cpc, conv, terms, negs, notes }
+// Any day up to today (yesterday's report can be sent today or tomorrow). No number is required.
 export async function saveAds(req, res) {
   try {
     const b = req.body || {};
     const c = await myClientOr404(req, res, b.client); if (!c) return undefined;
-    const day = isDay(b.date) ? b.date : new Date().toISOString().slice(0, 10);
-    const terms = (Array.isArray(b.terms) ? b.terms : []).slice(0, 2000).map(t => ({ t: str(t.t), clicks: num(t.clicks), impr: num(t.impr), cost: num(t.cost), conv: num(t.conv) })).filter(t => t.t);
-    const doc = { client: c._id, who: req.portal.seoMember, date: utcDay(day), spend: num(b.spend), clicks: num(b.clicks), impr: num(b.impr), conv: num(b.conv), terms, negs: (Array.isArray(b.negs) ? b.negs : []).map(str).filter(Boolean), notes: str(b.notes) };
-    const r = await SeoAdsDay.findOneAndUpdate({ client: c._id, date: doc.date }, { $set: doc, $setOnInsert: { sent: false } }, { new: true, upsert: true });
-    if (!(await PortalWork.exists({ account: req.portal._id, date: day, type: "adsreport", refId: c._id }))) {
-      await PortalWork.create({ account: req.portal._id, date: day, type: "adsreport", refType: "client", refId: c._id, refName: c.name, title: "Daily ads report", hrs: 0.5, meta: { spend: doc.spend, conv: doc.conv } });
+    const day = isDay(b.date) && b.date <= istDay() ? b.date : istDay();
+    const meta = b.platform === "meta";
+    const opt = (v) => (v === "" || v == null || !Number.isFinite(+v) ? null : Math.max(0, +v));
+    const nums = { campaign: str(b.campaign).slice(0, 300), spend: num(b.spend), clicks: num(b.clicks), impr: num(b.impr), conv: num(b.conv), ctr: opt(b.ctr), cpc: opt(b.cpc) };
+    let set;
+    if (meta) set = { client: c._id, date: utcDay(day), meta: { ...nums, notes: str(b.notes) } };
+    else {
+      const terms = (Array.isArray(b.terms) ? b.terms : []).slice(0, 2000).map(t => ({ t: str(t.t), clicks: num(t.clicks), impr: num(t.impr), cost: num(t.cost), conv: num(t.conv) })).filter(t => t.t);
+      set = { client: c._id, who: req.portal.seoMember, date: utcDay(day), ...nums, terms, negs: (Array.isArray(b.negs) ? b.negs : []).map(str).filter(Boolean), notes: str(b.notes) };
+    }
+    const r = await SeoAdsDay.findOneAndUpdate({ client: c._id, date: utcDay(day) }, { $set: set, $setOnInsert: meta ? { sent: false, who: req.portal.seoMember } : { sent: false } }, { new: true, upsert: true });
+    const title = meta ? "Daily Meta Ads report" : "Daily ads report";
+    if (!(await PortalWork.exists({ account: req.portal._id, date: day, type: "adsreport", refId: c._id, title }))) {
+      await PortalWork.create({ account: req.portal._id, date: day, type: "adsreport", refType: "client", refId: c._id, refName: c.name, title, hrs: 0.5, meta: { spend: nums.spend, conv: nums.conv, ...(nums.campaign ? { camp: nums.campaign } : {}) } });
     }
     return res.json({ success: true, data: { ...r.toObject(), date: day } });
   } catch (err) { return fail(res, err, "saveAds"); }
@@ -804,7 +835,9 @@ export async function adsSent(req, res) {
     if (!isId(req.params.id)) return res.status(400).json({ success: false, message: "Invalid id" });
     const r = await SeoAdsDay.findById(req.params.id);
     if (!r || !(await myClients(req.portal)).some(c => String(c._id) === String(r.client))) return res.status(404).json({ success: false, message: "Not found" });
-    r.sent = true; r.sentAt = new Date(); await r.save();
+    if (req.query.platform === "meta") { r.metaSent = true; r.metaSentAt = new Date(); }
+    else { r.sent = true; r.sentAt = new Date(); }
+    await r.save();
     return res.json({ success: true });
   } catch (err) { return fail(res, err, "adsSent"); }
 }

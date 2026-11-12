@@ -127,6 +127,8 @@ router.post("/messages", C.sendMyMessage);
 router.get("/projects", PP.listProjects);
 router.get("/projects/:id", PP.projectDetail);
 router.post("/projects/:id/integrations/:iid/secrets/:sid/reveal", revealLimiter, PP.revealProjectSecret);
+router.post("/projects/:id/integrations", PP.addProjectIntegration);
+router.put("/projects/:id/integrations/:iid", PP.updateProjectIntegration);
 router.get("/meetings", P.listMeetings);
 router.get("/meetings/:id", P.getMeeting);
 router.post("/meetings", P.saveMeeting);
@@ -141,6 +143,7 @@ router.delete("/meetings/:id", P.deleteMeeting);
 
 router.get("/keywords", P.clientKeywords);
 router.post("/ranks", P.saveRanks);
+router.post("/keywords", P.addKeywords);
 router.get("/ads", P.clientAds);
 router.post("/ads", P.saveAds);
 router.put("/ads/:id/sent", P.adsSent);

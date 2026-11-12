@@ -47,16 +47,23 @@ function buildShiftDateTime(hhmm, baseDate) {
 /**
  * Computes derived attendance fields given check-in/out times and employee shift config.
  */
+// Office 9:30 to 6:30 (each employee's own shift from the Employees tab):
+//   checked in up to 2 hours after the start (9:30 shift → by 11:30) → present
+//   checked in after that                                             → late
+//   checked in 4 hours or more after the start (after 1:30 pm)        → half day
+//   checked out having worked under 6 hours (or 3 hours short of the full shift) → half day
+// Times are the office clock (India time) kept as UTC, the same as the times typed in the CRM.
+const LATE_AFTER_MIN = 120;
 export function computeAttendanceStatus(checkIn, checkOut, employee, date) {
   if (!checkIn) {
-    return { status: "absent", lateMinutes: 0, earlyLeaveMin: 0, workingHours: 0 };
+    return { status: "absent", lateMinutes: 0, earlyLeaveMin: 0, workingHours: 0, overtimeMin: 0 };
   }
 
   const shiftStartDt = buildShiftDateTime(employee.shiftStart || "09:30", date);
   const shiftEndDt   = buildShiftDateTime(employee.shiftEnd   || "18:30", date);
-  const grace        = employee.gracePeriodMin != null ? employee.gracePeriodMin : 15;
+  const grace        = Math.max(LATE_AFTER_MIN, employee.gracePeriodMin != null ? employee.gracePeriodMin : 0);
 
-  // Late minutes: how many minutes after (shiftStart + grace) the employee checked in
+  // Late minutes: how many minutes after the late time (9:30 shift → 11:30) the employee checked in
   const lateMs      = checkIn - shiftStartDt - grace * 60 * 1000;
   const lateMinutes = Math.max(0, Math.round(lateMs / 60000));
 
@@ -69,23 +76,22 @@ export function computeAttendanceStatus(checkIn, checkOut, employee, date) {
 
   // Working hours (clamp to 0 in case checkOut < checkIn due to data entry error)
   const workingHours = checkOut ? Math.max(0, (checkOut - checkIn) / 3_600_000) : 0;
+  const overtimeMin  = checkOut ? Math.max(0, Math.round((checkOut - shiftEndDt) / 60000)) : 0;
+  const shiftHours   = Math.max(1, (shiftEndDt - shiftStartDt) / 3_600_000);
+  const minFullDay   = Math.min(6, shiftHours - 3);
+  const startedLate  = (checkIn - shiftStartDt) / 60000;   // minutes after the shift start
 
-  // Determine status
   let status;
-  if (workingHours >= 4 && lateMinutes > 0) {
-    status = "late";
-  } else if (workingHours >= 4) {
-    status = "present";
-  } else if (workingHours > 0 && workingHours < 4) {
-    status = "half-day";
-  } else {
-    status = "absent";
-  }
+  if (startedLate >= 240) status = "half-day";                          // came in after half the day
+  else if (checkOut && workingHours < minFullDay) status = "half-day";  // left early
+  else if (lateMinutes > 0) status = "late";
+  else status = "present";
 
   return {
     status,
     lateMinutes,
     earlyLeaveMin,
+    overtimeMin,
     workingHours: Math.round(workingHours * 100) / 100,
   };
 }
@@ -111,6 +117,46 @@ function buildCheckDateTime(timeInput, dateUtcMidnight) {
   // Otherwise treat as full datetime string / timestamp
   const d = new Date(timeInput);
   return isNaN(d) ? null : d;
+}
+
+// ---------------------------------------------------------------------------
+// Employee Portal check in / check out → the CRM attendance for that day
+// ---------------------------------------------------------------------------
+const d10 = (p) => String(p || "").replace(/\D/g, "").slice(-10);
+const nameKey = (n) => String(n || "").toLowerCase().replace(/[^a-z]/g, "");
+// The CRM employee for a portal account: same email, else same phone, else same name
+async function employeeFor(acc) {
+  const L = await Employee.find({ isActive: true }).select("name email phone shiftStart shiftEnd gracePeriodMin employeeId branch").lean();
+  const em = String(acc.email || "").toLowerCase();
+  return L.find(e => em && e.email && e.email.toLowerCase() === em)
+    || L.find(e => d10(acc.phone).length === 10 && d10(e.phone) === d10(acc.phone))
+    || L.find(e => nameKey(e.name) && nameKey(e.name) === nameKey(acc.name))
+    || null;
+}
+// sessions: [{ in, out }] real times. Leave or holiday the admin marked is never changed.
+export async function syncFromPortal(acc, dateStr, sessions) {
+  const L = (sessions || []).filter(s => s?.in);
+  if (!L.length) return null;
+  const emp = await employeeFor(acc);
+  if (!emp) return null;
+  const dateUTC = toUTCMidnight(dateStr);
+  const prev = await Attendance.findOne({ employeeId: emp._id, date: dateUTC }).lean();
+  if (prev && ["leave", "holiday"].includes(prev.status)) return prev;
+  const clock = (d) => new Date(new Date(d).getTime() + 330 * 60000);   // India time as UTC, like the CRM
+  const lastOut = [...L].reverse().find(s => s.out)?.out;
+  const open = L.some(s => !s.out);
+  const checkIn = clock(L[0].in), checkOut = !open && lastOut ? clock(lastOut) : null;
+  const c = computeAttendanceStatus(checkIn, checkOut, emp, dateUTC);
+  return Attendance.findOneAndUpdate(
+    { employeeId: emp._id, date: dateUTC },
+    {
+      employeeId: emp._id, employeeName: emp.name, employeeCode: emp.employeeId, branch: emp.branch,
+      date: dateUTC, month: dateUTC.getUTCMonth() + 1, year: dateUTC.getUTCFullYear(),
+      checkIn, checkOut, workingHours: c.workingHours, lateMinutes: c.lateMinutes, earlyLeaveMin: c.earlyLeaveMin, overtimeMin: c.overtimeMin || 0,
+      status: c.status, markedBy: "Employee Portal",
+    },
+    { upsert: true, new: true }
+  );
 }
 
 // ---------------------------------------------------------------------------
@@ -394,6 +440,7 @@ export async function markAttendance(req, res) {
       workingHours:  computed.workingHours,
       lateMinutes:   computed.lateMinutes,
       earlyLeaveMin: computed.earlyLeaveMin,
+      overtimeMin:   computed.overtimeMin || 0,
       status:        computed.status,
       leaveType:     leaveType || "",
       notes:         notes    || "",
@@ -468,6 +515,7 @@ export async function bulkMarkAttendance(req, res) {
             workingHours:  computed.workingHours,
             lateMinutes:   computed.lateMinutes,
             earlyLeaveMin: computed.earlyLeaveMin,
+            overtimeMin:   computed.overtimeMin || 0,
             status:        computed.status,
             leaveType:     rec.leaveType || "",
             notes:         rec.notes    || "",

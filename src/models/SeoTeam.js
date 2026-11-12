@@ -80,6 +80,19 @@ const SeoAdsDaySchema = new mongoose.Schema(
     clicks: { type: Number, default: 0 },
     impr:   { type: Number, default: 0 },
     conv:   { type: Number, default: 0 },
+    campaign: { type: String, default: "" },   // campaign name(s)
+    ctr:    { type: Number, default: null },     // % as entered (else worked out from clicks / impressions)
+    cpc:    { type: Number, default: null },     // ₹ as entered (else spend / clicks)
+    // Meta Ads (Facebook / Instagram) numbers for the same client and day
+    meta: {
+      type: new mongoose.Schema({
+        campaign: { type: String, default: "" }, spend: { type: Number, default: 0 }, clicks: { type: Number, default: 0 }, impr: { type: Number, default: 0 },
+        conv: { type: Number, default: 0 }, ctr: { type: Number, default: null }, cpc: { type: Number, default: null }, notes: { type: String, default: "" },
+      }, { _id: false }),
+      default: null,
+    },
+    metaSent:   { type: Boolean, default: false },
+    metaSentAt: { type: Date, default: null },
     terms:  { type: [TermSchema], default: [] },
     negs:   { type: [String], default: [] },
     notes:  { type: String, default: "" },

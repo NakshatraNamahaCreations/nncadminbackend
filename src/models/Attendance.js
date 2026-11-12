@@ -17,6 +17,7 @@ const AttendanceSchema = new mongoose.Schema(
     workingHours:  { type: Number, default: 0 },     // decimal hours
     lateMinutes:   { type: Number, default: 0 },
     earlyLeaveMin: { type: Number, default: 0 },
+    overtimeMin:   { type: Number, default: 0 },     // minutes worked after the shift end
     status: {
       type: String,
       enum: ["present", "late", "half-day", "absent", "leave", "holiday"],

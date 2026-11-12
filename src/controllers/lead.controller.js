@@ -588,22 +588,17 @@ export const getLeads = async (req, res) => {
 
     if (q && clean(q)) {
       const cleaned = clean(q);
-      // Use text index for name/phone/email/business — much faster than regex $or
-      // Fall back to phone regex for partial number matching (text index requires full words)
-      const isNumeric = /^\d+$/.test(cleaned);
-      if (isNumeric) {
-        // Phone number partial match — regex needed, but only on indexed phone field
-        const phoneRegex = new RegExp(escapeRegex(cleaned), "i");
-        const phoneClause = { $or: [{ phone: phoneRegex }, { mobile: phoneRegex }] };
-        if (filter.$or) {
-          filter.$and = [{ $or: filter.$or }, phoneClause];
-          delete filter.$or;
-        } else {
-          Object.assign(filter, phoneClause);
-        }
+      // Partial match from the first letters: client name, project / business name, company, email, phone.
+      // (The text index only matched whole words, so "ho" never found "House Of ...".)
+      const rx = new RegExp(escapeRegex(cleaned), "i");
+      const qClause = /^[\d\s+-]+$/.test(cleaned)
+        ? { $or: [{ phone: new RegExp(escapeRegex(cleaned.replace(/\D/g, "")), "i") }, { mobile: new RegExp(escapeRegex(cleaned.replace(/\D/g, "")), "i") }] }
+        : { $or: [{ name: rx }, { business: rx }, { company: rx }, { email: rx }, { phone: rx }] };
+      if (filter.$or) {
+        filter.$and = [{ $or: filter.$or }, qClause];
+        delete filter.$or;
       } else {
-        // Text index search — uses lead_text_search index, very fast
-        filter.$text = { $search: cleaned };
+        Object.assign(filter, qClause);
       }
     }
 

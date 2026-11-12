@@ -17,9 +17,9 @@ export const getCredentials = async (req, res) => {
     const filter = {};
 
     if (q?.trim()) {
-      if (q.trim().length >= 2) {
-        filter.$text = { $search: q.trim() };
-      }
+      // partial match from the first letters (the text index only matched whole words)
+      const rx = new RegExp(String(q).trim().replace(/[.*+?^${}()|[\]\\]/g, "\\$&"), "i");
+      filter.$or = [{ label: rx }, { username: rx }, { url: rx }, { notes: rx }, { tags: rx }, { category: rx }];
     }
     if (category) filter.category = category;
     if (pinned === "true") filter.pinned = true;

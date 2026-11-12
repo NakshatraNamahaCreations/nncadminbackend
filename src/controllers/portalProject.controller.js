@@ -6,6 +6,8 @@ import Integration from "../models/Integration.js";
 import ProjectExtra from "../models/ProjectExtra.js";
 import { PortalAccount, PortalWork, PortalMeeting } from "../models/Portal.js";
 import { decryptSecret } from "../utils/secretBox.js";
+import { pickFields, mergeSecrets } from "./integration.controller.js";
+import { INTEGRATION_CATEGORIES } from "../models/Integration.js";
 import { getSettingsDoc } from "./portal.controller.js";
 
 // Project pages in the Employee Portal: only projects whose CRM developers include this employee.
@@ -110,18 +112,58 @@ export async function projectDetail(req, res) {
       data: {
         id: String(l._id), name, client: l.name, business: l.business || l.company || "", industry: l.industry || "", location: l.location || "", req: l.requirements || "",
         stage: l.projectStage || "", start: day(l.projectStartDate), due: day(l.projectCompletionDate), onboarded: day(l.onboardedDate), completed: !!l.projectCompleted, timeline: l.agreedTimeline || 0,
-        team, files, moms, showSecrets,
+        team, files, moms, showSecrets, intCategories: INTEGRATION_CATEGORIES,
         history: (l.history || []).filter(h => /project|stage|developer|deliver|onboard|complet/i.test(`${h.title} ${h.meta}`) && !/₹|payment|invoice|advance/i.test(`${h.title} ${h.meta}`))
           .slice(-30).reverse().map(h => ({ title: h.title, meta: h.meta, by: h.by, at: h.at })),
         integrations: ints.map(i => ({
           id: String(i._id), service: i.service, category: i.category, owner: i.accountOwner, mode: i.mode, status: i.status, loginUrl: i.loginUrl, username: i.username,
           secrets: showSecrets ? (i.secrets || []).map(s => ({ id: String(s._id), label: s.label })) : [], renewal: day(i.renewalDate), notes: i.notes, updated: i.updatedAt,
+          addedBy: i.addedBy || "", updatedBy: i.updatedBy || "",
         })),
         extras: extras.map(x => ({ id: String(x._id), title: x.title, description: x.description, status: x.status, date: day(x.requestedDate) })),
         work: work.map(w => ({ ...w, by: w.account?.name || "", byRole: w.account?.role || "", account: w.account?._id })),
       },
     });
   } catch (err) { return fail(res, err, "projectDetail"); }
+}
+
+// POST /api/portal/projects/:id/integrations → an employee on the project adds a login or key.
+// It is saved in the same place as the CRM's integrations, so the admin sees it in the CRM straight away.
+export async function addProjectIntegration(req, res) {
+  try {
+    const l = await myLead(req, res, req.params.id, "_id");
+    if (!l) return undefined;
+    const b = req.body || {};
+    const fields = pickFields(b);
+    if (!fields.service) return res.status(400).json({ success: false, message: "Write the service name, for example Razorpay or Hostinger" });
+    const by = `${req.portal.name} (Employee Portal)`;
+    const doc = await Integration.create({ ...fields, lead: l._id, secrets: mergeSecrets([], Array.isArray(b.secrets) ? b.secrets.slice(0, 20) : []), addedBy: by, updatedBy: by });
+    return res.status(201).json({ success: true, data: { id: String(doc._id) } });
+  } catch (err) {
+    if (err.name === "ValidationError") return res.status(400).json({ success: false, message: err.message });
+    return fail(res, err, "addProjectIntegration");
+  }
+}
+// PUT /api/portal/projects/:id/integrations/:iid → edit details; secrets left blank keep their saved value
+export async function updateProjectIntegration(req, res) {
+  try {
+    const l = await myLead(req, res, req.params.id, "_id");
+    if (!l) return undefined;
+    if (!isId(req.params.iid)) return res.status(400).json({ success: false, message: "Invalid id" });
+    const doc = await Integration.findOne({ _id: req.params.iid, lead: l._id });
+    if (!doc) return res.status(404).json({ success: false, message: "Not found" });
+    const b = req.body || {};
+    const fields = pickFields(b);
+    if ("service" in fields && !fields.service) return res.status(400).json({ success: false, message: "Write the service name" });
+    Object.assign(doc, fields);
+    if (Array.isArray(b.secrets) && (await getSettingsDoc()).showSecrets !== false) doc.secrets = mergeSecrets(doc.secrets, b.secrets.slice(0, 20));
+    doc.updatedBy = `${req.portal.name} (Employee Portal)`;
+    await doc.save();
+    return res.json({ success: true });
+  } catch (err) {
+    if (err.name === "ValidationError") return res.status(400).json({ success: false, message: err.message });
+    return fail(res, err, "updateProjectIntegration");
+  }
 }
 
 // POST /api/portal/projects/:id/integrations/:iid/secrets/:sid/reveal

@@ -20,7 +20,7 @@ function sendError(res, err, where) {
 }
 
 // Plain (non-secret) fields accepted on create/update
-function pickFields(body) {
+export function pickFields(body) {
   const out = {};
   if (body.service      !== undefined) out.service      = String(body.service || "").trim();
   if (body.category     !== undefined) out.category     = INTEGRATION_CATEGORIES.includes(body.category) ? body.category : "Other";
@@ -43,7 +43,7 @@ function pickFields(body) {
  *   - value omitted/blank on an existing _id → keep the stored value
  *   - stored secrets not present in the list → removed
  */
-function mergeSecrets(existing = [], incoming = []) {
+export function mergeSecrets(existing = [], incoming = []) {
   const byId = new Map(existing.map(s => [String(s._id), s]));
   return incoming
     .filter(s => String(s?.label || "").trim())
