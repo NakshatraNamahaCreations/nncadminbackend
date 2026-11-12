@@ -1,7 +1,7 @@
 import mongoose from "mongoose";
 import bcrypt from "bcryptjs";
 import crypto from "crypto";
-import { PortalAccount, PortalWork, PortalTask, PortalMeeting, PortalBlocker, PortalDay, PortalAttendance, PortalPlan, PortalSetting, PortalMessage, PortalDoc, PORTAL_ROLES, notify , rolesOf } from "../models/Portal.js";
+import { PortalAccount, PortalWork, PortalTask, PortalMeeting, PortalBlocker, PortalDay, PortalAttendance, PortalPlan, PortalPlanReport, PortalSetting, PortalMessage, PortalDoc, PORTAL_ROLES, notify , rolesOf } from "../models/Portal.js";
 import { SeoClient, SeoMember } from "../models/SeoTeam.js";
 import Lead from "../models/Lead.js";
 import Developer from "../models/Developer.js";
@@ -67,7 +67,7 @@ export async function createAccount(req, res) {
     checkPassword(pw);
     if (await PortalAccount.exists({ email })) return res.status(409).json({ success: false, message: "An employee with this email already exists" });
     const extra = (Array.isArray(b.roles) ? b.roles : []).map(str).filter(r => PORTAL_ROLES.includes(r) && r !== role);
-    const acc = await PortalAccount.create({ name, email, phone: phone || "-", branch: str(b.branch), role, roles: [...new Set(extra)], password: await bcrypt.hash(pw, 10), status: "active", approvedBy: req.actorName || "Admin" });
+    const acc = await PortalAccount.create({ name, email, phone: phone || "-", branch: str(b.branch), planLead: !!b.planLead, role, roles: [...new Set(extra)], password: await bcrypt.hash(pw, 10), status: "active", approvedBy: req.actorName || "Admin" });
     const linked = await ensureLinks(acc.toObject());
     if (linked.developer && Array.isArray(b.projectIds) && b.projectIds.length) await setProjects(linked, b.projectIds);
     return res.status(201).json({ success: true, data: { id: String(acc._id) } });
@@ -98,7 +98,7 @@ export async function listAccounts(req, res) {
     return res.json({
       success: true,
       data: accs.map(a => ({
-        id: String(a._id), name: a.name, email: a.email, phone: a.phone, branch: a.branch || "", role: a.role, roles: rolesOf(a), status: a.status, mustChange: a.mustChange,
+        id: String(a._id), name: a.name, email: a.email, phone: a.phone, branch: a.branch || "", planLead: !!a.planLead, role: a.role, roles: rolesOf(a), status: a.status, mustChange: a.mustChange,
         created: a.createdAt, lastLogin: a.lastLogin, logins: a.logins || 0, works: w(a), orphan: !!orphan(a),
       })),
     });
@@ -121,6 +121,7 @@ export async function updateAccount(req, res) {
     if (str(b.name)) acc.name = str(b.name);
     if (b.phone !== undefined && str(b.phone)) acc.phone = str(b.phone);
     if (b.branch !== undefined) acc.branch = str(b.branch);
+    if (b.planLead !== undefined) acc.planLead = !!b.planLead;
     await acc.save();
     const set = { name: acc.name, phone: acc.phone === "-" ? "" : acc.phone };
     if (acc.developer) await Developer.updateOne({ _id: acc.developer }, { ...set, ...(DEV_ROLE[acc.role] ? { role: DEV_ROLE[acc.role] } : {}) });
@@ -270,7 +271,7 @@ export async function counts(req, res) {
   try {
     const dflt = new Date(Date.now() - 864e5);
     const since = (k) => { const d = new Date(String(req.query[k] || "")); return isNaN(d) ? dflt : d; };
-    const [people, messages, work, meetings, docs, tasks, plans] = await Promise.all([
+    const [people, messages, work, meetings, docs, tasks, plans, planReports] = await Promise.all([
       PortalAccount.countDocuments({ status: "pending" }),
       PortalMessage.countDocuments({ from: "emp", readAdmin: false }),
       PortalWork.countDocuments({ createdAt: { $gt: since("work") } }),
@@ -278,8 +279,9 @@ export async function counts(req, res) {
       PortalDoc.countDocuments({ createdAt: { $gt: since("docs") } }),
       PortalTask.countDocuments({ from: { $ne: "me" }, status: { $ne: "todo" }, updatedAt: { $gt: since("tasks") } }),
       PortalPlan.countDocuments({ date: new Date(Date.now() + 330 * 60000).toISOString().slice(0, 10), "items.0": { $exists: true }, updatedAt: { $gt: since("plans") } }),
+      PortalPlanReport.countDocuments({ createdAt: { $gt: since("plans") } }),
     ]);
-    const data = { people, messages, work, meetings, docs, tasks, plans };
+    const data = { people, messages, work, meetings, docs, tasks, plans: plans + planReports };
     return res.json({ success: true, data, total: Object.values(data).reduce((a, n) => a + n, 0) });
   } catch (err) { return fail(res, err, "counts"); }
 }
@@ -288,8 +290,11 @@ export async function counts(req, res) {
 export async function plans(req, res) {
   try {
     const date = isDay(req.query.date) ? req.query.date : new Date(Date.now() + 330 * 60000).toISOString().slice(0, 10);
-    const L = await PortalPlan.find({ date }).sort({ updatedAt: -1 }).populate("account", "name role roles branch status").lean();
-    return res.json({ success: true, data: { date, plans: L.filter(p => p.account) } });
+    const [L, reports] = await Promise.all([
+      PortalPlan.find({ date }).sort({ updatedAt: -1 }).populate("account", "name role roles branch status").lean(),
+      PortalPlanReport.find({ date }).sort({ createdAt: -1 }).populate("account", "name role").lean(),
+    ]);
+    return res.json({ success: true, data: { date, plans: L.filter(p => p.account), reports } });
   } catch (err) { return fail(res, err, "plans"); }
 }
 

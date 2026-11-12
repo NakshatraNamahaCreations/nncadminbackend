@@ -1,7 +1,7 @@
 import mongoose from "mongoose";
 import bcrypt from "bcryptjs";
 import {
-  PortalAccount, PortalWork, PortalTask, PortalMeeting, PortalBlocker, PortalDay, PortalAttendance, PortalPlan, PortalSetting, PORTAL_ROLES, rolesOf, hasRole } from "../models/Portal.js";
+  PortalAccount, PortalWork, PortalTask, PortalMeeting, PortalBlocker, PortalDay, PortalAttendance, PortalPlan, PortalPlanReport, PortalSetting, PORTAL_ROLES, rolesOf, hasRole } from "../models/Portal.js";
 import { SeoMember, SeoClient, SeoWork, SeoAdsDay, SeoKeyword } from "../models/SeoTeam.js";
 import Developer from "../models/Developer.js";
 import Lead from "../models/Lead.js";
@@ -57,7 +57,7 @@ export async function ensureLinks(acc) {
 
 const publicAccount = (a) => ({
   id: String(a._id), name: a.name, email: a.email, phone: a.phone, role: a.role, roles: rolesOf(a), status: a.status,
-  mustChange: !!a.mustChange, created: a.createdAt, lastLogin: a.lastLogin, logins: a.logins || 0,
+  mustChange: !!a.mustChange, created: a.createdAt, lastLogin: a.lastLogin, logins: a.logins || 0, planLead: !!a.planLead,
 });
 
 /* ───────── public ───────── */
@@ -540,6 +540,50 @@ export async function removePlanItem(req, res) {
     const p = await PortalPlan.findOneAndUpdate({ account: req.portal._id, date }, { $pull: { items: { _id: req.params.item } } }, { new: true }).lean();
     return res.json({ success: true, data: planOut(p, date) });
   } catch (err) { return fail(res, err, "removePlanItem"); }
+}
+
+/* ───────── team plans (for the plans lead the admin picked) ───────── */
+
+const teamDay = async (date) => {
+  const [accs, plans] = await Promise.all([
+    PortalAccount.find({ status: "active" }).select("name role roles branch").sort({ name: 1 }).lean(),
+    PortalPlan.find({ date }).sort({ updatedAt: -1 }).lean(),
+  ]);
+  const byAcc = new Map(plans.filter(p => p.items.length).map(p => [String(p.account), p]));
+  return {
+    plans: accs.filter(a => byAcc.has(String(a._id))).map(a => ({ id: String(a._id), name: a.name, role: a.role, roles: rolesOf(a), branch: a.branch || "", items: byAcc.get(String(a._id)).items, updatedAt: byAcc.get(String(a._id)).updatedAt })),
+    missing: accs.filter(a => !byAcc.has(String(a._id))).map(a => ({ id: String(a._id), name: a.name, role: a.role })),
+  };
+};
+const leadOr403 = (req, res) => {
+  if (req.portal.planLead) return true;
+  res.status(403).json({ success: false, message: "Only the team plans lead can see this" });
+  return false;
+};
+// GET /api/portal/plans/team?date= → every employee's plan for the day, who has none, and the reports I sent that day
+export async function teamPlans(req, res) {
+  try {
+    if (!leadOr403(req, res)) return;
+    const date = isDay(req.query.date) ? req.query.date : istDay();
+    const [day, sent] = await Promise.all([teamDay(date), PortalPlanReport.find({ account: req.portal._id, date }).sort({ createdAt: -1 }).lean()]);
+    return res.json({ success: true, data: { date, ...day, sent } });
+  } catch (err) { return fail(res, err, "teamPlans"); }
+}
+// POST /api/portal/plans/report { date, note, files } → the team plans as they are now, sent to the admin
+export async function sendPlanReport(req, res) {
+  try {
+    if (!leadOr403(req, res)) return;
+    const b = req.body || {};
+    const date = isDay(b.date) ? b.date : istDay();
+    const day = await teamDay(date);
+    if (!day.plans.length && !str(b.note) && !cleanFiles(b.files).length) return res.status(400).json({ success: false, message: "No plans yet. Write a note or attach a file to send." });
+    const r = await PortalPlanReport.create({
+      account: req.portal._id, date, note: str(b.note).slice(0, 4000), files: cleanFiles(b.files),
+      plans: day.plans.map(p => ({ name: p.name, role: p.role, items: p.items.map(i => ({ text: i.text, refName: i.refName, done: !!i.done })) })),
+      missing: day.missing.map(m => m.name),
+    });
+    return res.status(201).json({ success: true, data: r });
+  } catch (err) { return fail(res, err, "sendPlanReport"); }
 }
 
 /* ───────── check in / check out ───────── */

@@ -14,6 +14,7 @@ const PortalAccountSchema = new mongoose.Schema(
     role:       { type: String, enum: PORTAL_ROLES, required: true },
     roles:      { type: [{ type: String, enum: PORTAL_ROLES }], default: [] },   // extra roles (the main one is role)
     branch:     { type: String, default: "", trim: true },   // office they work from: Bangalore, Mysore or Mumbai
+    planLead:   { type: Boolean, default: false },  // sees everyone's plans for the day and sends the admin the report
     password:   { type: String, required: true, select: false },
     status:     { type: String, enum: ["pending", "active", "disabled"], default: "pending" },
     mustChange: { type: Boolean, default: false },   // set after an admin reset
@@ -131,6 +132,21 @@ const PortalPlanSchema = new mongoose.Schema(
 PortalPlanSchema.index({ account: 1, date: 1 }, { unique: true });
 PortalPlanSchema.index({ date: -1 });
 
+/* The team plans report a plans lead sends the admin: everyone's plans for the day, with a note and files */
+const PortalPlanReportSchema = new mongoose.Schema(
+  {
+    account: { type: ObjectId, ref: "PortalAccount", required: true },   // who sent it
+    date:    { type: String, required: true },
+    note:    { type: String, default: "" },
+    files:   { type: [{ url: String, name: String, type: { type: String }, size: Number, _id: false }], default: [] },
+    // the plans as they were when it was sent
+    plans:   { type: [{ name: String, role: String, items: [{ text: String, refName: String, done: Boolean, _id: false }], _id: false }], default: [] },
+    missing: { type: [String], default: [] },                            // employees with no plan that day
+  },
+  { timestamps: true, collection: "portal_plan_reports" }
+);
+PortalPlanReportSchema.index({ date: -1, createdAt: -1 });
+
 /* Check in and check out times for one employee and day; several sessions if they step out */
 const PortalAttendanceSchema = new mongoose.Schema(
   {
@@ -241,6 +257,7 @@ export const PortalBlocker = model("PortalBlocker", PortalBlockerSchema);
 export const PortalDay     = model("PortalDay", PortalDaySchema);
 export const PortalAttendance = model("PortalAttendance", PortalAttendanceSchema);
 export const PortalPlan    = model("PortalPlan", PortalPlanSchema);
+export const PortalPlanReport = model("PortalPlanReport", PortalPlanReportSchema);
 export const PortalSetting = model("PortalSetting", PortalSettingSchema);
 export const PortalNotification = model("PortalNotification", PortalNotificationSchema);
 export const PortalMessage = model("PortalMessage", PortalMessageSchema);

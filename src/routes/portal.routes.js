@@ -108,6 +108,8 @@ router.post("/blockers", P.addBlocker);
 router.patch("/blockers/:id/resolve", P.resolveBlocker);
 router.post("/days", P.submitDay);
 router.get("/plans", P.getPlan);
+router.get("/plans/team", P.teamPlans);
+router.post("/plans/report", P.sendPlanReport);
 router.post("/plans", P.addPlan);
 router.patch("/plans/:item", P.planItem);
 router.delete("/plans/:item", P.removePlanItem);
