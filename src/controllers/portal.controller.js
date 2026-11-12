@@ -1,7 +1,7 @@
 import mongoose from "mongoose";
 import bcrypt from "bcryptjs";
 import {
-  PortalAccount, PortalWork, PortalTask, PortalMeeting, PortalBlocker, PortalDay, PortalAttendance, PortalPlan, PortalPlanReport, PortalSetting, PORTAL_ROLES, rolesOf, hasRole } from "../models/Portal.js";
+  PortalAccount, PortalWork, PortalTask, PortalMeeting, PortalBlocker, PortalDay, PortalAttendance, PortalPlan, PortalPlanReport, PortalSetting, PORTAL_ROLES, rolesOf, hasRole, isPlanLead } from "../models/Portal.js";
 import { SeoMember, SeoClient, SeoWork, SeoAdsDay, SeoKeyword } from "../models/SeoTeam.js";
 import Developer from "../models/Developer.js";
 import Lead from "../models/Lead.js";
@@ -57,7 +57,7 @@ export async function ensureLinks(acc) {
 
 const publicAccount = (a) => ({
   id: String(a._id), name: a.name, email: a.email, phone: a.phone, role: a.role, roles: rolesOf(a), status: a.status,
-  mustChange: !!a.mustChange, created: a.createdAt, lastLogin: a.lastLogin, logins: a.logins || 0, planLead: !!a.planLead,
+  mustChange: !!a.mustChange, created: a.createdAt, lastLogin: a.lastLogin, logins: a.logins || 0, planLead: isPlanLead(a),
 });
 
 /* ───────── public ───────── */
@@ -556,7 +556,7 @@ const teamDay = async (date) => {
   };
 };
 const leadOr403 = (req, res) => {
-  if (req.portal.planLead) return true;
+  if (isPlanLead(req.portal)) return true;
   res.status(403).json({ success: false, message: "Only the team plans lead can see this" });
   return false;
 };

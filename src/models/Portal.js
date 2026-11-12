@@ -14,7 +14,7 @@ const PortalAccountSchema = new mongoose.Schema(
     role:       { type: String, enum: PORTAL_ROLES, required: true },
     roles:      { type: [{ type: String, enum: PORTAL_ROLES }], default: [] },   // extra roles (the main one is role)
     branch:     { type: String, default: "", trim: true },   // office they work from: Bangalore, Mysore or Mumbai
-    planLead:   { type: Boolean, default: false },  // sees everyone's plans for the day and sends the admin the report
+    planLead:   { type: Boolean },  // sees everyone's plans for the day and sends the admin the report; not set = on for testers
     password:   { type: String, required: true, select: false },
     status:     { type: String, enum: ["pending", "active", "disabled"], default: "pending" },
     mustChange: { type: Boolean, default: false },   // set after an admin reset
@@ -268,6 +268,8 @@ export const TeamRead = model("TeamRead", TeamReadSchema);
 // Every role an employee has: the main role first, then the extra ones
 export const rolesOf = (a) => [...new Set([a?.role, ...(a?.roles || [])].filter(r => PORTAL_ROLES.includes(r)))];
 export const hasRole = (a, list) => rolesOf(a).some(r => list.includes(r));
+// Team plans lead: what the admin ticked, or (never ticked either way) every tester
+export const isPlanLead = (a) => (typeof a?.planLead === "boolean" ? a.planLead : rolesOf(a).includes("test"));
 
 export async function notify(account, n) {
   try { if (account) await PortalNotification.create({ account, ...n }); }
