@@ -43,6 +43,7 @@ import salesDeskRoutes from "./src/routes/salesDesk.routes.js";
 import seoTeamRoutes from "./src/routes/seoTeam.routes.js";
 import portalRoutes from "./src/routes/portal.routes.js";
 import { initReportScheduler } from "./src/services/reportScheduler.js";
+import { initAutoCheckout } from "./src/services/autoCheckout.js";
 import { getDashboardSummary } from "./src/services/dashboard.service.js";
 import { initRealtime } from "./src/realtime.js";
 
@@ -208,6 +209,7 @@ async function startServer() {
     console.log("MongoDB connected successfully");
 
     initReportScheduler();
+    initAutoCheckout();   // anyone still checked in at 10 pm is checked out
 
     // Pre-warm dashboard cache so the first morning request is instant
     getDashboardSummary()

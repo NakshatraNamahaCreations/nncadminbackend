@@ -154,7 +154,7 @@ const PortalAttendanceSchema = new mongoose.Schema(
   {
     account:  { type: ObjectId, ref: "PortalAccount", required: true },
     date:     { type: String, required: true },         // "YYYY-MM-DD" (employee's day)
-    sessions: [{ in: { type: Date, required: true }, out: { type: Date, default: null }, _id: false }],
+    sessions: [{ in: { type: Date, required: true }, out: { type: Date, default: null }, auto: { type: Boolean, default: false }, _id: false }],   // auto: checked out at 10 pm by the system
   },
   { timestamps: true, collection: "portal_attendance" }
 );
