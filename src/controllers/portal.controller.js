@@ -250,6 +250,15 @@ export async function addWork(req, res) {
           kw: str(meta.kw), da: meta.da ? Math.min(100, num(meta.da)) : null, platform: str(meta.platform), status: "live", by: acc.name,
         });
         doc.seoWork = sw._id;
+        // several GMB posts, backlinks, blogs or posters in one entry (one link each): each one counts
+        const more = ["gmb", "backlink", "blog", "poster"].includes(type) && Array.isArray(meta.links) ? meta.links.map(l => str(l?.url)).filter(Boolean).filter(u => u !== doc.url) : [];
+        if (more.length) {
+          const extraDocs = await SeoWork.insertMany(more.slice(0, 50).map(u => ({
+            client: ref.refId, who: acc.seoMember, date: utcDay(date), type: SEO_TYPES[type], url: u, title: doc.title,
+            kw: str(meta.kw), da: meta.da ? Math.min(100, num(meta.da)) : null, platform: str(meta.platform), status: "live", by: acc.name,
+          })));
+          doc.seoWorkMore = extraDocs.map(x => x._id);
+        }
       }
       const saved = await PortalWork.create(doc);
       out.push(saved);
@@ -271,6 +280,7 @@ export async function deleteWork(req, res) {
     if (!w) return res.status(404).json({ success: false, message: "Not found" });
     if (!w.meta?.extra && await PortalDay.exists({ account: req.portal._id, date: w.date })) return res.status(400).json({ success: false, message: "That day is already submitted" });
     if (w.seoWork) await SeoWork.deleteOne({ _id: w.seoWork });
+    if (w.seoWorkMore?.length) await SeoWork.deleteMany({ _id: { $in: w.seoWorkMore } });
     await w.deleteOne();
     return res.json({ success: true });
   } catch (err) { return fail(res, err, "deleteWork"); }

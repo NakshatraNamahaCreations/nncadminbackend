@@ -43,6 +43,7 @@ const PortalWorkSchema = new mongoose.Schema(
     hrs:     { type: Number, default: 0, min: 0 },
     meta:    { type: Mixed, default: {} },             // kw, da, screens, bug status, etc.
     seoWork: { type: ObjectId, ref: "SeoWork", default: null }, // copy in the SEO & Ads Team log
+    seoWorkMore: { type: [ObjectId], default: [] },              // one more copy for each extra post link in the same entry
   },
   { timestamps: true, collection: "portal_work", minimize: false }
 );
