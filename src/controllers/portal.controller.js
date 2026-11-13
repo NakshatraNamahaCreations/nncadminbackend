@@ -190,7 +190,7 @@ export async function assigned(req, res) {
 const SEO_TYPES = { backlink: "backlink", blog: "blog", gmb: "gmb", poster: "poster", onpage: "other", optimise: "other", negative: "other", newad: "other",
   webcontent: "other", blogcontent: "other", landing: "other", campaign: "other", social: "other", position: "other", monthly: "other", docs: "other",
   kwresearch: "other", metaads: "other", tracking: "other",
-  logo: "other", vcard: "other", brochure: "other", corpvideo: "other", instavideo: "other", motion: "other" };
+  indexing: "other", logo: "other", vcard: "other", brochure: "other", corpvideo: "other", instavideo: "other", motion: "other" };
 
 async function resolveRef(acc, refType, refId) {
   if (!refId || !isId(refId)) return null;
