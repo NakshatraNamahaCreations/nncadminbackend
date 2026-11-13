@@ -1,7 +1,7 @@
 import mongoose from "mongoose";
 import bcrypt from "bcryptjs";
 import {
-  PortalAccount, PortalWork, PortalTask, PortalMeeting, PortalBlocker, PortalDay, PortalAttendance, PortalPlan, PortalPlanReport, PortalSetting, PORTAL_ROLES, rolesOf, hasRole, isPlanLead } from "../models/Portal.js";
+  PortalAccount, PortalWork, PortalTask, PortalMeeting, PortalBlocker, PortalDay, PortalAttendance, PortalPlan, PortalPlanReport, PortalMyDoc, PortalSetting, PORTAL_ROLES, rolesOf, hasRole, isPlanLead } from "../models/Portal.js";
 import { SeoMember, SeoClient, SeoWork, SeoAdsDay, SeoKeyword } from "../models/SeoTeam.js";
 import Developer from "../models/Developer.js";
 import Lead from "../models/Lead.js";
@@ -71,8 +71,14 @@ export async function publicSettings(req, res) {
 }
 
 // POST /api/portal/signup { name, email, phone, role, password }
+// The portal is for computers only: the phone's browser name, its "mobile" hint, or the portal's own check
+const MOBILE_UA = /Android|iPhone|iPad|iPod|Mobile|Mobi|Opera Mini|IEMobile|webOS|BlackBerry|Silk|Kindle/i;
+const fromMobile = (req) => MOBILE_UA.test(String(req.headers["user-agent"] || "")) || req.headers["sec-ch-ua-mobile"] === "?1" || req.body?.mobile === true;
+const NO_MOBILE = "The Employee Portal works only on a computer. Please sign in from a laptop or desktop.";
+
 export async function signup(req, res) {
   try {
+    if (fromMobile(req)) return res.status(403).json({ success: false, message: NO_MOBILE });
     const b = req.body || {};
     const name = str(b.name), email = str(b.email).toLowerCase(), phone = str(b.phone), role = str(b.role), pw = String(b.password || "");
     const s = await getSettingsDoc();
@@ -99,6 +105,7 @@ export async function signup(req, res) {
 // POST /api/portal/login { id (email or mobile), password }
 export async function login(req, res) {
   try {
+    if (fromMobile(req)) return res.status(403).json({ success: false, message: NO_MOBILE });
     const idv = str(req.body?.id).toLowerCase(), pw = String(req.body?.password || "");
     if (!idv || !pw) return res.status(400).json({ success: false, message: "Enter your email or mobile and password" });
     let acc = await PortalAccount.findOne({ email: idv }).select("+password");
@@ -830,6 +837,17 @@ export async function saveAds(req, res) {
     return res.json({ success: true, data: { ...r.toObject(), date: day } });
   } catch (err) { return fail(res, err, "saveAds"); }
 }
+// GET /api/portal/ads/all?from=&to= → every ads report for my clients in the period (for the list and the export)
+export async function allAds(req, res) {
+  try {
+    const to = isDay(req.query.to) ? req.query.to : istDay();
+    const from = isDay(req.query.from) ? req.query.from : new Date(Date.parse(to) - 30 * 864e5).toISOString().slice(0, 10);
+    const C = await myClients(req.portal);
+    const name = new Map(C.map(c => [String(c._id), c.name]));
+    const L = await SeoAdsDay.find({ client: { $in: C.map(c => c._id) }, date: { $gte: utcDay(from), $lte: utcDay(to) } }).sort({ date: -1 }).limit(2000).select("-terms").lean();
+    return res.json({ success: true, data: { from, to, list: L.map(r => ({ ...r, date: new Date(r.date).toISOString().slice(0, 10), clientName: name.get(String(r.client)) || "" })) } });
+  } catch (err) { return fail(res, err, "allAds"); }
+}
 export async function adsSent(req, res) {
   try {
     if (!isId(req.params.id)) return res.status(400).json({ success: false, message: "Invalid id" });
@@ -840,4 +858,35 @@ export async function adsSent(req, res) {
     await r.save();
     return res.json({ success: true });
   } catch (err) { return fail(res, err, "adsSent"); }
+}
+
+/* ───────── my documents (kept for myself, with a date) ───────── */
+// GET /api/portal/my-docs?from=&to=
+export async function listMyDocs(req, res) {
+  try {
+    const q = { account: req.portal._id };
+    if (isDay(req.query.from) || isDay(req.query.to)) q.date = { ...(isDay(req.query.from) ? { $gte: req.query.from } : {}), ...(isDay(req.query.to) ? { $lte: req.query.to } : {}) };
+    const L = await PortalMyDoc.find(q).sort({ date: -1, createdAt: -1 }).limit(1000).lean();
+    return res.json({ success: true, data: L });
+  } catch (err) { return fail(res, err, "listMyDocs"); }
+}
+// POST /api/portal/my-docs { title, date, refName, note, files }
+export async function addMyDoc(req, res) {
+  try {
+    const b = req.body || {};
+    const files = cleanFiles(b.files);
+    const title = str(b.title).slice(0, 200) || files[0]?.name || "";
+    if (!title) return res.status(400).json({ success: false, message: "Add a file or write a title" });
+    if (!files.length && !str(b.note)) return res.status(400).json({ success: false, message: "Add a file or a note" });
+    const d = await PortalMyDoc.create({ account: req.portal._id, title, date: isDay(b.date) && b.date <= istDay() ? b.date : istDay(), refName: str(b.refName).slice(0, 160), note: str(b.note).slice(0, 4000), files });
+    return res.status(201).json({ success: true, data: d });
+  } catch (err) { return fail(res, err, "addMyDoc"); }
+}
+export async function removeMyDoc(req, res) {
+  try {
+    if (!isId(req.params.id)) return res.status(400).json({ success: false, message: "Invalid id" });
+    const r = await PortalMyDoc.deleteOne({ _id: req.params.id, account: req.portal._id });
+    if (!r.deletedCount) return res.status(404).json({ success: false, message: "Not found" });
+    return res.json({ success: true });
+  } catch (err) { return fail(res, err, "removeMyDoc"); }
 }

@@ -247,12 +247,27 @@ const PortalDocSchema = new mongoose.Schema(
 PortalDocSchema.index({ to: 1, createdAt: -1 });
 PortalDocSchema.index({ from: 1, createdAt: -1 });
 
+/* My documents: files an employee keeps for themselves, with a date (only they and the admin see them) */
+const PortalMyDocSchema = new mongoose.Schema(
+  {
+    account: { type: ObjectId, ref: "PortalAccount", required: true },
+    title:   { type: String, required: true, trim: true },
+    date:    { type: String, required: true },          // YYYY-MM-DD the document is for
+    refName: { type: String, default: "" },             // project or client, optional
+    note:    { type: String, default: "" },
+    files:   { type: [DocFile], default: [] },
+  },
+  { timestamps: true, collection: "portal_my_docs" }
+);
+PortalMyDocSchema.index({ account: 1, date: -1 });
+
 const model = (name, schema) => mongoose.models[name] || mongoose.model(name, schema);
 export const PortalAccount = model("PortalAccount", PortalAccountSchema);
 export const PortalWork    = model("PortalWork", PortalWorkSchema);
 export const PortalTask    = model("PortalTask", PortalTaskSchema);
 export const PortalMeeting = model("PortalMeeting", PortalMeetingSchema);
 export const PortalDoc     = model("PortalDoc", PortalDocSchema);
+export const PortalMyDoc   = model("PortalMyDoc", PortalMyDocSchema);
 export const PortalBlocker = model("PortalBlocker", PortalBlockerSchema);
 export const PortalDay     = model("PortalDay", PortalDaySchema);
 export const PortalAttendance = model("PortalAttendance", PortalAttendanceSchema);

@@ -145,6 +145,10 @@ router.get("/keywords", P.clientKeywords);
 router.post("/ranks", P.saveRanks);
 router.post("/keywords", P.addKeywords);
 router.get("/ads", P.clientAds);
+router.get("/ads/all", P.allAds);
+router.get("/my-docs", P.listMyDocs);
+router.post("/my-docs", P.addMyDoc);
+router.delete("/my-docs/:id", P.removeMyDoc);
 router.post("/ads", P.saveAds);
 router.put("/ads/:id/sent", P.adsSent);
 
