@@ -154,10 +154,10 @@ export async function changePassword(req, res) {
 
 /* ───────── what I work on ───────── */
 
-async function myClients(acc) {
+async function myClients(acc, all = false) {
   const F = [...new Set(rolesOf(acc).map(r => SEO_FIELD[r]).filter(Boolean))];
   if (!F.length || !acc.seoMember) return [];
-  return SeoClient.find({ $or: [{ members: acc.seoMember }, ...F.map(f => ({ [f]: acc.seoMember }))], isActive: { $ne: false } }).select("name site budget metaBudget targets start contact phone email seo ads design members lead").sort({ name: 1 }).lean();
+  return SeoClient.find({ $or: [{ members: acc.seoMember }, ...F.map(f => ({ [f]: acc.seoMember }))], ...(all ? {} : { isActive: { $ne: false } }) }).select("name site budget metaBudget targets start contact phone email seo ads design members lead isActive").sort({ isActive: -1, name: 1 }).lean();
 }
 async function myProjects(acc) {
   if (hasRole(acc, ["acc"])) {
@@ -714,7 +714,7 @@ export async function deleteMeeting(req, res) {
 /* ───────── SEO: keyword positions, Ads: daily report ───────── */
 
 async function myClientOr404(req, res, id) {
-  const c = (await myClients(req.portal)).find(x => String(x._id) === String(id));
+  const c = (await myClients(req.portal, true)).find(x => String(x._id) === String(id));
   if (!c) { res.status(404).json({ success: false, message: "This client is not assigned to you" }); return null; }
   return c;
 }
@@ -722,7 +722,7 @@ async function myClientOr404(req, res, id) {
 // today's ads report and the keyword checks (what the admin assigned in SEO & Ads Team)
 export async function myClientsDetail(req, res) {
   try {
-    const me = req.portal, C = await myClients(me);
+    const me = req.portal, C = await myClients(me, true);
     if (!C.length) return res.json({ success: true, data: [] });
     const ids = C.map(c => c._id), now = new Date();
     const dayStart = utcDay(now.toISOString().slice(0, 10));
@@ -748,7 +748,7 @@ export async function myClientsDetail(req, res) {
       const lastCheck = K.flatMap(k => (k.hist || []).map(h => +new Date(h.date))).sort((a, b) => b - a)[0];
       const t = c.targets || {};
       return {
-        id: String(c._id), name: c.name, site: c.site || "", contact: c.contact || "", phone: c.phone || "", email: c.email || "", start: day(c.start), budget: c.budget || 0, metaBudget: c.metaBudget || 0,
+        id: String(c._id), name: c.name, active: c.isActive !== false, site: c.site || "", contact: c.contact || "", phone: c.phone || "", email: c.email || "", start: day(c.start), budget: c.budget || 0, metaBudget: c.metaBudget || 0,
         // on the team: every job my roles cover (an all-round digital marketer does SEO, Ads and design)
         myJobs: (() => {
           const onTeam = (c.members || []).some(x => String(x) === mine);
