@@ -7,7 +7,7 @@ import { noEmoji } from "../utils/noEmoji.js";
 // Direct messages between two employees: "dm:<smallerId>:<largerId>".
 
 const DEV = ["app", "web", "back", "full", "ux", "test", "other"];
-const SEO = ["seo", "seox", "ads", "gfx"];
+const SEO = ["seo", "seox", "ads", "gfx", "vid"];
 const GROUPS = { all: "Everyone", dev: "Development and design", seo: "Digital Marketing" };
 const str = (v) => String(v ?? "").trim();
 

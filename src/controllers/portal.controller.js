@@ -29,9 +29,9 @@ export async function getSettingsDoc() {
   return (await PortalSetting.findOne({ key: "default" }).lean()) || { approval: true, domainOnly: false, showSecrets: true, domain: "nakshatranamahacreations.com" };
 }
 
-const SEO_ROLE = { seo: "seo", seox: "seo", ads: "ads", gfx: "design" };
+const SEO_ROLE = { seo: "seo", seox: "seo", ads: "ads", gfx: "design", vid: "design" };
 const DEV_ROLE = { app: "Mobile App", web: "Frontend", back: "Backend", full: "Full Stack", ux: "UI/UX Designer", test: "Tester / QA", other: "Other" };
-const SEO_FIELD = { seo: "seo", seox: "seo", ads: "ads", gfx: "design" };
+const SEO_FIELD = { seo: "seo", seox: "seo", ads: "ads", gfx: "design", vid: "design" };
 
 // Create the CRM records an active employee is linked to (SEO team member or Developer)
 export async function ensureLinks(acc) {
@@ -189,7 +189,8 @@ export async function assigned(req, res) {
 
 const SEO_TYPES = { backlink: "backlink", blog: "blog", gmb: "gmb", poster: "poster", onpage: "other", optimise: "other", negative: "other", newad: "other",
   webcontent: "other", blogcontent: "other", landing: "other", campaign: "other", social: "other", position: "other", monthly: "other", docs: "other",
-  kwresearch: "other", metaads: "other", tracking: "other" };
+  kwresearch: "other", metaads: "other", tracking: "other",
+  logo: "other", vcard: "other", brochure: "other", corpvideo: "other", instavideo: "other", motion: "other" };
 
 async function resolveRef(acc, refType, refId) {
   if (!refId || !isId(refId)) return null;
@@ -765,6 +766,23 @@ export async function myClientsDetail(req, res) {
     });
     return res.json({ success: true, data });
   } catch (err) { return fail(res, err, "myClientsDetail"); }
+}
+// GET /api/portal/my-clients/:id/done?type=gmb|backlink|blog|poster|ads → this month's entries behind a number on My projects
+export async function myClientDone(req, res) {
+  try {
+    const c = await myClientOr404(req, res, req.params.id); if (!c) return undefined;
+    const now = new Date(), monStart = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), 1));
+    const type = String(req.query.type || "");
+    if (type === "ads") {
+      const A = await SeoAdsDay.find({ client: c._id, date: { $gte: monStart } }).sort({ date: -1 }).select("date spend clicks impr conv sent campaign").lean();
+      return res.json({ success: true, data: A.map(a => ({ id: String(a._id), date: day(a.date), spend: a.spend || 0, clicks: a.clicks || 0, impr: a.impr || 0, conv: a.conv || 0, sent: !!a.sent, campaign: a.campaign || "" })) });
+    }
+    if (!["gmb", "backlink", "blog", "poster"].includes(type)) return res.status(400).json({ success: false, message: "Unknown type" });
+    const W = await SeoWork.find({ client: c._id, type, date: { $gte: monStart } }).sort({ date: -1, _id: -1 }).limit(500).select("date title url kw platform by who").lean();
+    const M = await SeoMember.find({ _id: { $in: [...new Set(W.map(w => String(w.who || "")).filter(Boolean))] } }).select("name").lean();
+    const nm = (id) => M.find(m => String(m._id) === String(id))?.name || "";
+    return res.json({ success: true, data: W.map(w => ({ id: String(w._id), date: day(w.date), title: w.title || "", url: w.url || "", kw: w.kw || "", platform: w.platform || "", by: w.by || nm(w.who) })) });
+  } catch (err) { return fail(res, err, "myClientDone"); }
 }
 export async function clientKeywords(req, res) {
   try {

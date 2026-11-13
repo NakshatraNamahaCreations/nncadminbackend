@@ -18,7 +18,7 @@ function fail(res, err, where) {
   return res.status(500).json({ success: false, message: err.message || "Server error" });
 }
 
-const SEO_FIELD = { seo: "seo", seox: "seo", ads: "ads", gfx: "design" };
+const SEO_FIELD = { seo: "seo", seox: "seo", ads: "ads", gfx: "design", vid: "design" };
 
 const pname = (l) => (l.business || l.company ? `${l.name} · ${l.business || l.company}` : l.name);
 const stageOf = (l) => (l.projectCompleted ? "Project Completed" : l.projectStage || "");
@@ -53,7 +53,7 @@ async function setProjects(acc, ids) {
 }
 
 const DEV_ROLE = { app: "Mobile App", web: "Frontend", back: "Backend", full: "Full Stack", ux: "UI/UX Designer", test: "Tester / QA", other: "Other" };
-const SEO_ROLE = { seo: "seo", seox: "seo", ads: "ads", gfx: "design" };
+const SEO_ROLE = { seo: "seo", seox: "seo", ads: "ads", gfx: "design", vid: "design" };
 const ok = (res, err, where) => (err.status ? res.status(err.status).json({ success: false, message: err.message }) : fail(res, err, where));
 
 // POST /api/portal/admin/accounts { name, email, phone, role, password, projectIds } → an active employee, added by the admin
@@ -190,6 +190,27 @@ export async function teamWork(req, res) {
     ]);
     return res.json({ success: true, data: { accounts: accs.map(a => ({ id: String(a._id), name: a.name, role: a.role, status: a.status })), work, days, blockers, attendance } });
   } catch (err) { return fail(res, err, "teamWork"); }
+}
+
+// GET /api/portal/admin/accounts/:id/overview → bugs given to them, bugs they raised, tasks given to them
+export async function personOverview(req, res) {
+  try {
+    const id = String(req.params.id);
+    if (!mongoose.isValidObjectId(id)) return res.status(400).json({ success: false, message: "Bad id" });
+    const oid = new mongoose.Types.ObjectId(id);
+    const pick = "date title refName url account meta.bug meta.sev meta.status meta.assign meta.assignName meta.mod createdAt updatedAt";
+    const [bugsFor, bugsBy, tasks] = await Promise.all([
+      PortalWork.find({ type: "bug", "meta.assign": { $in: [id, oid] } }).sort({ date: -1, createdAt: -1 }).limit(500).select(pick).populate("account", "name").lean(),
+      PortalWork.find({ type: "bug", account: oid }).sort({ date: -1, createdAt: -1 }).limit(500).select(pick).lean(),
+      PortalTask.find({ account: oid }).sort({ due: -1 }).limit(300).lean(),
+    ]);
+    const bug = (b) => ({ id: String(b._id), date: b.date, title: b.title, project: b.refName || "", url: b.url || "", code: b.meta?.bug || "", sev: b.meta?.sev || "", status: b.meta?.status || "open",
+      mod: b.meta?.mod || "", by: b.account?.name || "", to: b.meta?.assignName || "", updated: b.updatedAt });
+    return res.json({ success: true, data: {
+      bugsFor: bugsFor.map(bug), bugsBy: bugsBy.map(bug),
+      tasks: tasks.map(t => ({ id: String(t._id), title: t.title, project: t.refName || "", due: t.due, status: t.status, from: t.from, doneOn: t.doneOn || "" })),
+    } });
+  } catch (err) { return fail(res, err, "personOverview"); }
 }
 
 export async function resolveBlocker(req, res) {

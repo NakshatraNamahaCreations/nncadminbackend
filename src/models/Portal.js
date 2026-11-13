@@ -3,7 +3,7 @@ import mongoose from "mongoose";
 const { ObjectId, Mixed } = mongoose.Schema.Types;
 
 // Employee Portal roles (the portal's own list; linked to SEO team / Developers records)
-export const PORTAL_ROLES = ["seo", "seox", "ads", "gfx", "app", "web", "back", "full", "ux", "test", "other", "acc"];
+export const PORTAL_ROLES = ["seo", "seox", "ads", "gfx", "vid", "app", "web", "back", "full", "ux", "test", "other", "acc"];
 
 /* An employee's portal login */
 const PortalAccountSchema = new mongoose.Schema(

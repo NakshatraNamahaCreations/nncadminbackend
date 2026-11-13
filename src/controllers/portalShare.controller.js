@@ -11,7 +11,7 @@ const num = (v) => { const n = Number(v); return Number.isFinite(n) ? n : 0; };
 const todayStr = () => new Date().toISOString().slice(0, 10);
 const EMAIL = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 const esc = (s) => String(s ?? "").replace(/[&<>"']/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
-const ROLE = { seo: "SEO Analyst", seox: "SEO Expert", ads: "Google Ads Expert", gfx: "Graphic Designer", app: "App Developer", web: "Website Developer", back: "Backend Developer", full: "Full Stack Developer", ux: "UI/UX Designer", test: "QA Tester", other: "Team Member", acc: "Accounts" };
+const ROLE = { seo: "SEO Analyst", seox: "SEO Expert", ads: "Google Ads Expert", gfx: "Graphic Designer", vid: "Video Editor", app: "App Developer", web: "Website Developer", back: "Backend Developer", full: "Full Stack Developer", ux: "UI/UX Designer", test: "QA Tester", other: "Team Member", acc: "Accounts" };
 const cleanFiles = (L) => (Array.isArray(L) ? L : []).slice(0, 10)
   .filter(f => f && /^\/uploads\/docs\/[\w.-]+$/.test(String(f.url || "")))
   .map(f => ({ url: f.url, name: str(f.name).slice(0, 120) || "file", type: str(f.type).slice(0, 80), size: num(f.size) }));

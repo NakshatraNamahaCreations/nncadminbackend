@@ -47,6 +47,7 @@ router.post("/admin/accounts/:id/reset", adminEdit, A.resetPassword);
 router.put("/admin/accounts/:id/password", adminEdit, A.setPassword);
 router.delete("/admin/accounts/:id", adminEdit, A.deleteAccount);
 router.get("/admin/accounts/:id/projects", adminView, A.accountProjects);
+router.get("/admin/accounts/:id/overview", adminView, A.personOverview);
 router.get("/admin/work", adminView, A.teamWork);
 router.put("/admin/blockers/:id/resolve", adminEdit, A.resolveBlocker);
 router.get("/admin/meetings", adminView, A.allMeetings);
@@ -88,6 +89,7 @@ router.put("/me", P.updateMe);
 router.put("/me/password", P.changePassword);
 router.get("/assigned", P.assigned);
 router.get("/my-clients", P.myClientsDetail);
+router.get("/my-clients/:id/done", P.myClientDone);
 
 router.get("/work", P.listWork);
 router.post("/work", P.addWork);

@@ -9,7 +9,7 @@ import { PortalAccount, rolesOf } from "./models/Portal.js";
 // If the socket cannot connect, the screens keep checking every few seconds as before.
 
 const DEV = ["app", "web", "back", "full", "ux", "test", "other"];
-const SEO = ["seo", "seox", "ads", "gfx"];
+const SEO = ["seo", "seox", "ads", "gfx", "vid"];
 let io = null;
 
 export function initRealtime(server, origin) {

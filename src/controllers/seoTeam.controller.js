@@ -26,7 +26,7 @@ export async function getAll(req, res) {
     // The team is the Employee Portal employees with an SEO, Ads or design role: add anyone not linked yet
     const { PortalAccount, rolesOf } = await import("../models/Portal.js");
     const { ensureLinks } = await import("./portal.controller.js");
-    const SEO_R = ["seo", "seox", "ads", "gfx"];
+    const SEO_R = ["seo", "seox", "ads", "gfx", "vid"];
     let accs = await PortalAccount.find({ status: "active" }).select("name email phone role roles status seoMember developer").lean();
     for (const a of accs) {
       if (rolesOf(a).some(r => SEO_R.includes(r))) {
