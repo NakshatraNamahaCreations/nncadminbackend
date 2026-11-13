@@ -822,7 +822,9 @@ export async function saveAds(req, res) {
     const day = isDay(b.date) && b.date <= istDay() ? b.date : istDay();
     const meta = b.platform === "meta";
     const opt = (v) => (v === "" || v == null || !Number.isFinite(+v) ? null : Math.max(0, +v));
-    const nums = { campaign: str(b.campaign).slice(0, 300), spend: num(b.spend), clicks: num(b.clicks), impr: num(b.impr), conv: num(b.conv), ctr: opt(b.ctr), cpc: opt(b.cpc) };
+    const campaigns = (Array.isArray(b.campaigns) ? b.campaigns : []).slice(0, 20).map(c => ({ campaign: str(c.campaign).slice(0, 200), spend: num(c.spend), clicks: num(c.clicks), impr: num(c.impr), conv: num(c.conv), ctr: opt(c.ctr), cpc: opt(c.cpc) }))
+      .filter(c => c.campaign || c.spend || c.clicks || c.impr || c.conv);
+    const nums = { campaign: str(b.campaign).slice(0, 300), spend: num(b.spend), clicks: num(b.clicks), impr: num(b.impr), conv: num(b.conv), ctr: opt(b.ctr), cpc: opt(b.cpc), campaigns };
     let set;
     if (meta) set = { client: c._id, date: utcDay(day), meta: { ...nums, notes: str(b.notes) } };
     else {

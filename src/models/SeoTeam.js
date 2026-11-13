@@ -71,6 +71,10 @@ const TermSchema = new mongoose.Schema(
   { t: String, clicks: Number, impr: Number, cost: Number, conv: Number },
   { _id: false }
 );
+const CampSchema = new mongoose.Schema({
+  campaign: { type: String, default: "" }, spend: { type: Number, default: 0 }, clicks: { type: Number, default: 0 }, impr: { type: Number, default: 0 },
+  conv: { type: Number, default: 0 }, ctr: { type: Number, default: null }, cpc: { type: Number, default: null },
+}, { _id: false });
 const SeoAdsDaySchema = new mongoose.Schema(
   {
     client: { type: ObjectId, ref: "SeoClient", required: true },
@@ -81,6 +85,7 @@ const SeoAdsDaySchema = new mongoose.Schema(
     impr:   { type: Number, default: 0 },
     conv:   { type: Number, default: 0 },
     campaign: { type: String, default: "" },   // campaign name(s)
+    campaigns: { type: [CampSchema], default: [] },   // one row per campaign; the numbers above are their totals
     ctr:    { type: Number, default: null },     // % as entered (else worked out from clicks / impressions)
     cpc:    { type: Number, default: null },     // ₹ as entered (else spend / clicks)
     // Meta Ads (Facebook / Instagram) numbers for the same client and day
@@ -88,6 +93,7 @@ const SeoAdsDaySchema = new mongoose.Schema(
       type: new mongoose.Schema({
         campaign: { type: String, default: "" }, spend: { type: Number, default: 0 }, clicks: { type: Number, default: 0 }, impr: { type: Number, default: 0 },
         conv: { type: Number, default: 0 }, ctr: { type: Number, default: null }, cpc: { type: Number, default: null }, notes: { type: String, default: "" },
+        campaigns: { type: [CampSchema], default: [] },
       }, { _id: false }),
       default: null,
     },
