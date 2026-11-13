@@ -469,6 +469,44 @@ export async function addTask(req, res) {
     return res.status(201).json({ success: true, data: await PortalTask.create({ account: req.portal._id, title, refName: str(req.body?.refName), due, from: "me" }) });
   } catch (err) { return fail(res, err, "addTask"); }
 }
+// Testers and team leads give tasks to developers
+const canGive = (acc) => hasRole(acc, ["test"]) || isPlanLead(acc);
+const DEV_ROLES = ["app", "web", "back", "full", "other"];
+// POST /api/portal/tasks/give { account, title, due, refId } → a task for a developer
+export async function giveTask(req, res) {
+  try {
+    const me = req.portal, b = req.body || {};
+    if (!canGive(me)) return res.status(403).json({ success: false, message: "Only testers and team leads can give tasks" });
+    if (!isId(b.account) || !str(b.title) || !isDay(b.due)) return res.status(400).json({ success: false, message: "Pick the developer, write the task and pick a due date" });
+    const dev = await PortalAccount.findOne({ _id: b.account, status: "active", $or: [{ role: { $in: DEV_ROLES } }, { roles: { $in: DEV_ROLES } }] }).select("name").lean();
+    if (!dev) return res.status(404).json({ success: false, message: "Developer not found" });
+    let refId = null, refName = str(b.refName);
+    if (isId(b.refId)) {
+      const l = await Lead.findById(b.refId).select("name business company").lean();
+      if (l) { refId = l._id; refName = l.business || l.company ? `${l.name} · ${l.business || l.company}` : l.name; }
+    }
+    const t = await PortalTask.create({ account: dev._id, title: str(b.title).slice(0, 500), refName, refId, due: b.due, from: me.name, by: me._id });
+    await notify(dev._id, { kind: "task", title: `New task from ${me.name}`, text: `${t.title}${t.refName ? ` · ${t.refName}` : ""} · due ${t.due}`, link: "/tasks", from: me.name });
+    return res.status(201).json({ success: true, data: t });
+  } catch (err) { return fail(res, err, "giveTask"); }
+}
+// GET /api/portal/tasks/given → tasks I gave, with who has them and their status
+export async function givenTasks(req, res) {
+  try {
+    if (!canGive(req.portal)) return res.json({ success: true, data: [] });
+    const L = await PortalTask.find({ by: req.portal._id }).sort({ createdAt: -1 }).limit(300).populate("account", "name").lean();
+    return res.json({ success: true, data: L.map(t => ({ ...t, to: t.account?.name || "" })) });
+  } catch (err) { return fail(res, err, "givenTasks"); }
+}
+// DELETE /api/portal/tasks/given/:id → take back a task I gave that is not done
+export async function removeGivenTask(req, res) {
+  try {
+    if (!isId(req.params.id)) return res.status(400).json({ success: false, message: "Invalid id" });
+    const t = await PortalTask.findOneAndDelete({ _id: req.params.id, by: req.portal._id, status: { $ne: "done" } });
+    if (!t) return res.status(404).json({ success: false, message: "Not found, or already done" });
+    return res.json({ success: true });
+  } catch (err) { return fail(res, err, "removeGivenTask"); }
+}
 export async function taskStatus(req, res) {
   try {
     if (!isId(req.params.id)) return res.status(400).json({ success: false, message: "Invalid id" });

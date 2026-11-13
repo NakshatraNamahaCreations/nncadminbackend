@@ -104,6 +104,9 @@ router.patch("/designs/:id", P.designStatus);
 
 router.get("/tasks", P.listTasks);
 router.post("/tasks", P.addTask);
+router.post("/tasks/give", P.giveTask);
+router.get("/tasks/given", P.givenTasks);
+router.delete("/tasks/given/:id", P.removeGivenTask);
 router.patch("/tasks/:id", P.taskStatus);
 router.get("/blockers", P.listBlockers);
 router.post("/blockers", P.addBlocker);

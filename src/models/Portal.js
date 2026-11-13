@@ -61,6 +61,7 @@ const PortalTaskSchema = new mongoose.Schema(
     due:     { type: String, required: true },         // "YYYY-MM-DD"
     status:  { type: String, enum: ["todo", "doing", "done"], default: "todo" },
     from:    { type: String, default: "me" },          // "me" or the admin's name
+    by:      { type: ObjectId, ref: "PortalAccount", default: null },   // the tester or team lead who gave it (null: admin or self)
     doneOn:  { type: String, default: "" },
   },
   { timestamps: true, collection: "portal_tasks" }
