@@ -181,14 +181,16 @@ export async function teamWork(req, res) {
   try {
     const to = isDay(req.query.to) ? req.query.to : new Date().toISOString().slice(0, 10);
     const from = isDay(req.query.from) ? req.query.from : to;
-    const [accs, work, days, blockers, attendance] = await Promise.all([
+    const since = new Date(String(req.query.since || ""));
+    const [accs, work, days, blockers, attendance, fresh] = await Promise.all([
       PortalAccount.find().select("name role status").lean(),
       PortalWork.find({ date: { $gte: from, $lte: to } }).sort({ date: -1, createdAt: -1 }).limit(3000).lean(),
       PortalDay.find({ date: { $gte: from, $lte: to } }).lean(),
       PortalBlocker.find({ resolved: false }).sort({ createdAt: -1 }).limit(200).lean(),
       PortalAttendance.find({ date: { $gte: from, $lte: to } }).lean(),
+      isNaN(since) ? [] : PortalWork.find({ createdAt: { $gt: since } }).sort({ createdAt: -1 }).limit(500).lean(),
     ]);
-    return res.json({ success: true, data: { accounts: accs.map(a => ({ id: String(a._id), name: a.name, role: a.role, status: a.status })), work, days, blockers, attendance } });
+    return res.json({ success: true, data: { accounts: accs.map(a => ({ id: String(a._id), name: a.name, role: a.role, status: a.status })), work, days, blockers, attendance, fresh } });
   } catch (err) { return fail(res, err, "teamWork"); }
 }
 
