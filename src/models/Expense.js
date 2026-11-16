@@ -10,8 +10,7 @@ const ExpenseSchema = new mongoose.Schema(
     subcategory: { type: String, default: "" }, // e.g. employee name for salary
     branch: {
       type: String,
-      enum: ["Mysore", "Bangalore", "Mumbai", "General"],
-      default: "General",
+      default: "General",   // Mysore, Bangalore, Mumbai, General or an office added in Settings → Branch & Rent
     },
     amount:        { type: Number, required: true, min: 0 },
     date:          { type: Date,   required: true },

@@ -24,8 +24,9 @@ function parseYearMonth(query) {
   return { year, month };
 }
 
-/* ─── ensure all 3 rent configs exist (auto-seed) ─── */
+/* ─── the 3 offices are added the first time only; after that offices are added and removed in Settings ─── */
 async function ensureRentConfigs() {
+  if (await RentConfig.exists({})) return;
   for (const branch of RENT_BRANCHES) {
     await RentConfig.findOneAndUpdate(
       { branch },
@@ -39,7 +40,7 @@ async function ensureRentConfigs() {
 export async function getRentConfig(req, res) {
   try {
     await ensureRentConfigs();
-    const configs = await RentConfig.find({ branch: { $in: RENT_BRANCHES } }).lean();
+    const configs = await RentConfig.find({}).sort({ createdAt: 1 }).lean();
     return res.status(200).json({ success: true, data: configs });
   } catch (err) {
     return res.status(500).json({ success: false, message: err.message });
@@ -50,11 +51,17 @@ export async function getRentConfig(req, res) {
 export async function updateRentConfig(req, res) {
   try {
     const { branch } = req.params;
-    if (!RENT_BRANCHES.includes(branch)) {
-      return res.status(400).json({ success: false, message: "Invalid branch" });
+    if (!(await RentConfig.exists({ branch }))) {
+      return res.status(404).json({ success: false, message: "Office not found" });
     }
     const { amount, dueDay, notes } = req.body;
     const updates = {};
+    // rename: the office's past rent entries move to the new name too
+    const newName = String(req.body.name ?? "").trim().slice(0, 60);
+    if (newName && newName !== branch) {
+      if (await RentConfig.exists({ branch: newName })) return res.status(409).json({ success: false, message: `${newName} already exists` });
+      updates.branch = newName;
+    }
     if (amount !== undefined) {
       const num = Number(amount);
       if (!Number.isFinite(num) || num < 0) {
@@ -74,9 +81,37 @@ export async function updateRentConfig(req, res) {
     const config = await RentConfig.findOneAndUpdate(
       { branch },
       { $set: updates },
-      { upsert: true, new: true }
+      { new: true }
     ).lean();
+    if (updates.branch) await Expense.updateMany({ category: "rent", branch }, { $set: { branch: updates.branch } });
     return res.status(200).json({ success: true, data: config });
+  } catch (err) {
+    return res.status(500).json({ success: false, message: err.message });
+  }
+}
+
+/* ─── POST /api/expenses/rent-config { name, amount, dueDay, notes } → a new office ─── */
+export async function addRentConfig(req, res) {
+  try {
+    const name = String(req.body?.name ?? "").trim().slice(0, 60);
+    if (!name) return res.status(400).json({ success: false, message: "Office name is required" });
+    if (await RentConfig.exists({ branch: name })) return res.status(409).json({ success: false, message: `${name} already exists` });
+    const amount = Number(req.body.amount || 0), dueDay = Number(req.body.dueDay || 1);
+    if (!Number.isFinite(amount) || amount < 0) return res.status(400).json({ success: false, message: "amount must be a non-negative number" });
+    if (!Number.isFinite(dueDay) || dueDay < 1 || dueDay > 28) return res.status(400).json({ success: false, message: "dueDay must be between 1 and 28" });
+    const config = await RentConfig.create({ branch: name, amount, dueDay, notes: String(req.body.notes || "") });
+    return res.status(201).json({ success: true, data: config });
+  } catch (err) {
+    return res.status(500).json({ success: false, message: err.message });
+  }
+}
+
+/* ─── DELETE /api/expenses/rent-config/:branch → stop tracking rent for an office (paid rent entries stay) ─── */
+export async function deleteRentConfig(req, res) {
+  try {
+    const r = await RentConfig.findOneAndDelete({ branch: req.params.branch });
+    if (!r) return res.status(404).json({ success: false, message: "Office not found" });
+    return res.status(200).json({ success: true });
   } catch (err) {
     return res.status(500).json({ success: false, message: err.message });
   }
@@ -91,8 +126,8 @@ export async function getRentStatus(req, res) {
     const { year, month } = ym;
 
     const [configs, rentExpenses] = await Promise.all([
-      RentConfig.find({ branch: { $in: RENT_BRANCHES } }).lean(),
-      Expense.find({ year, month, category: "rent", branch: { $in: RENT_BRANCHES } }).lean(),
+      RentConfig.find({}).sort({ createdAt: 1 }).lean(),
+      Expense.find({ year, month, category: "rent" }).lean(),
     ]);
 
     const paidMap = {};
