@@ -892,12 +892,21 @@ export async function saveAds(req, res) {
       .filter(c => c.campaign || c.spend || c.clicks || c.impr || c.conv);
     const nums = { campaign: str(b.campaign).slice(0, 300), spend: num(b.spend), clicks: num(b.clicks), impr: num(b.impr), conv: num(b.conv), ctr: opt(b.ctr), cpc: opt(b.cpc), campaigns };
     let set;
-    if (meta) set = { client: c._id, date: utcDay(day), meta: { ...nums, notes: str(b.notes) } };
+    const imp = b.import === true;
+    if (imp) {
+      const pre = meta ? "meta." : "";
+      set = { client: c._id, date: utcDay(day), ...(meta ? {} : { who: req.portal.seoMember }) };
+      for (const [k, v] of Object.entries(nums)) set[pre + k] = v;
+      if (b.sent === true) { if (meta) { set.metaSent = true; set.metaSentAt = new Date(); } else { set.sent = true; set.sentAt = new Date(); } }
+    } else if (meta) set = { client: c._id, date: utcDay(day), meta: { ...nums, notes: str(b.notes) } };
     else {
       const terms = (Array.isArray(b.terms) ? b.terms : []).slice(0, 2000).map(t => ({ t: str(t.t), clicks: num(t.clicks), impr: num(t.impr), cost: num(t.cost), conv: num(t.conv) })).filter(t => t.t);
       set = { client: c._id, who: req.portal.seoMember, date: utcDay(day), ...nums, terms, negs: (Array.isArray(b.negs) ? b.negs : []).map(str).filter(Boolean), notes: str(b.notes) };
     }
-    const r = await SeoAdsDay.findOneAndUpdate({ client: c._id, date: utcDay(day) }, { $set: set, $setOnInsert: meta ? { sent: false, who: req.portal.seoMember } : { sent: false } }, { new: true, upsert: true });
+    const ins = meta ? { who: req.portal.seoMember } : {};
+    if (!("sent" in set)) ins.sent = false;
+    const r = await SeoAdsDay.findOneAndUpdate({ client: c._id, date: utcDay(day) }, { $set: set, $setOnInsert: ins }, { new: true, upsert: true });
+    if (imp) return res.json({ success: true, data: { ...r.toObject(), date: day } });
     const title = meta ? "Daily Meta Ads report" : "Daily ads report";
     if (!(await PortalWork.exists({ account: req.portal._id, date: day, type: "adsreport", refId: c._id, title }))) {
       await PortalWork.create({ account: req.portal._id, date: day, type: "adsreport", refType: "client", refId: c._id, refName: c.name, title, hrs: 0.5, meta: { spend: nums.spend, conv: nums.conv, ...(nums.campaign ? { camp: nums.campaign } : {}) } });
