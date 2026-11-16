@@ -43,6 +43,14 @@ export async function getAll(req, res) {
       SeoSetting.findOne({ key: "default" }).lean(),
     ]);
     // portal: true = has an Employee Portal login (shown in the team); the others are old entries kept for past work
+    // "other" work logged from the Employee Portal: name what it was (social posts, web content, ...)
+    const otherIds = work.filter(w => w.type === "other").map(w => w._id);
+    if (otherIds.length) {
+      const { PortalWork } = await import("../models/Portal.js");
+      const pw = await PortalWork.find({ seoWork: { $in: otherIds } }).select("seoWork type").lean();
+      const kindOf = new Map(pw.map(p => [String(p.seoWork), p.type]));
+      for (const w of work) if (w.type === "other") w.kind = kindOf.get(String(w._id)) || "";
+    }
     const team = teamRaw.map(t => { const a = linked.get(String(t._id)); return { ...t, portal: !!a, account: a ? String(a._id) : "" }; });
     return res.json({ success: true, roles: SEO_ROLES, types: SEO_WORK_TYPES, data: { team, clients, work, ads, keywords, settings: { logo: setting?.logo || "" } } });
   } catch (err) { return fail(res, err, "seo getAll"); }
