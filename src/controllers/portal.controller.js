@@ -293,11 +293,14 @@ export async function deleteWork(req, res) {
 async function withProjectNo(bugs) {
   if (!bugs.length) return bugs;
   const refIds = [...new Set(bugs.filter(b => b.refId).map(b => String(b.refId)))];
-  const names = [...new Set(bugs.filter(b => !b.refId).map(b => b.refName || ""))];
-  const all = await PortalWork.find({ type: "bug", $or: [{ refId: { $in: refIds } }, { refId: null, refName: { $in: names } }] })
-    .select("_id refId refName createdAt").sort({ createdAt: 1, _id: 1 }).lean();
+  // a typed project name counts as one project however it was spaced or capitalised ("RentAngadi", "Rent Angadi")
+  const key = (n) => String(n || "").toLowerCase().replace(/[^a-z0-9]/g, "");
+  const names = new Set(bugs.filter(b => !b.refId).map(b => key(b.refName)));
+  const all = (await PortalWork.find({ type: "bug", $or: [{ refId: { $in: refIds } }, { refId: null }] })
+    .select("_id refId refName createdAt").sort({ createdAt: 1, _id: 1 }).lean())
+    .filter(b => b.refId || names.has(key(b.refName)));
   const seq = {}, no = new Map();
-  for (const b of all) { const k = b.refId ? `i${b.refId}` : `n${b.refName || ""}`; seq[k] = (seq[k] || 0) + 1; no.set(String(b._id), seq[k]); }
+  for (const b of all) { const k = b.refId ? `i${b.refId}` : `n${key(b.refName)}`; seq[k] = (seq[k] || 0) + 1; no.set(String(b._id), seq[k]); }
   return bugs.map(b => ({ ...b, no: no.get(String(b._id)) || null }));
 }
 
