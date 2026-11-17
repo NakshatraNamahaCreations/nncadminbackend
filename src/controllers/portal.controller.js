@@ -252,9 +252,11 @@ export async function addWork(req, res) {
         });
         doc.seoWork = sw._id;
         // several GMB posts, backlinks, blogs or posters in one entry (one link each): each one counts
-        const more = ["gmb", "backlink", "blog", "poster"].includes(type) && Array.isArray(meta.links) ? meta.links.map(l => str(l?.url)).filter(Boolean).filter(u => u !== doc.url) : [];
+        let more = ["gmb", "backlink", "blog", "poster"].includes(type) && Array.isArray(meta.links) ? meta.links.map(l => str(l?.url)).filter(Boolean).filter(u => u !== doc.url) : [];
+        // a Google Sheet or doc that lists several backlinks counts as that many (one copy each)
+        if (type === "backlink" && num(meta.count) > 1) more = Array(Math.min(200, Math.floor(num(meta.count))) - 1).fill(doc.url);
         if (more.length) {
-          const extraDocs = await SeoWork.insertMany(more.slice(0, 50).map(u => ({
+          const extraDocs = await SeoWork.insertMany(more.slice(0, 200).map(u => ({
             client: ref.refId, who: acc.seoMember, date: utcDay(date), type: SEO_TYPES[type], url: u, title: doc.title,
             kw: str(meta.kw), da: meta.da ? Math.min(100, num(meta.da)) : null, platform: str(meta.platform), status: "live", by: acc.name,
           })));
@@ -290,6 +292,8 @@ export async function editWork(req, res) {
       set.date = b.date;
     }
     if (b.kw !== undefined) set["meta.kw"] = str(b.kw);
+    const count = b.count !== undefined && (b.type || w.type) === "backlink" ? Math.min(200, Math.max(1, Math.floor(num(b.count)) || 1)) : null;
+    if (count) set["meta.count"] = count;
     const FIXED = ["bug", "meeting", "adsreport"];   // these have their own screens
     if (b.type !== undefined && str(b.type) !== w.type) {
       if (FIXED.includes(w.type) || FIXED.includes(str(b.type)) || !str(b.type)) return res.status(400).json({ success: false, message: "This kind of work cannot be changed here" });
@@ -315,6 +319,25 @@ export async function editWork(req, res) {
         await PortalWork.updateOne({ _id: w._id }, { $set: { seoWork: sw._id } });
         doc.seoWork = sw._id;
       }
+    }
+    // backlinks: one SEO log copy for each backlink in the link
+    if (count && w.seoWork && (doc.type === "backlink")) {
+      const have = (doc.seoWorkMore || []).map(String), want = count - 1;
+      if (have.length > want) {
+        const drop = have.slice(want);
+        await SeoWork.deleteMany({ _id: { $in: drop } });
+        await PortalWork.updateOne({ _id: w._id }, { $set: { seoWorkMore: have.slice(0, want) } });
+        w.seoWorkMore = have.slice(0, want);
+      } else if (have.length < want) {
+        const base = await SeoWork.findById(w.seoWork).lean();
+        if (base) {
+          const { _id, createdAt, updatedAt, __v, ...rest } = base;
+          const add = await SeoWork.insertMany(Array(want - have.length).fill(0).map(() => ({ ...rest })));
+          w.seoWorkMore = [...have, ...add.map(x => String(x._id))];
+          await PortalWork.updateOne({ _id: w._id }, { $set: { seoWorkMore: w.seoWorkMore } });
+        }
+      }
+      doc.seoWorkMore = w.seoWorkMore;
     }
     if (w.seoWork) {
       const s = {};
