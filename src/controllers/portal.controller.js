@@ -274,7 +274,7 @@ export async function addWork(req, res) {
   } catch (err) { return fail(res, err, "addWork"); }
 }
 
-// PATCH /api/portal/work/:id → fix a logged entry: title, link, hours, date or keyword
+// PATCH /api/portal/work/:id → fix a logged entry: kind of work, title, link, hours, date or keyword
 export async function editWork(req, res) {
   try {
     if (!isId(req.params.id)) return res.status(400).json({ success: false, message: "Invalid id" });
@@ -290,9 +290,32 @@ export async function editWork(req, res) {
       set.date = b.date;
     }
     if (b.kw !== undefined) set["meta.kw"] = str(b.kw);
+    const FIXED = ["bug", "meeting", "adsreport"];   // these have their own screens
+    if (b.type !== undefined && str(b.type) !== w.type) {
+      if (FIXED.includes(w.type) || FIXED.includes(str(b.type)) || !str(b.type)) return res.status(400).json({ success: false, message: "This kind of work cannot be changed here" });
+      set.type = str(b.type);
+    }
     if ((set.title ?? w.title) === "" && (set.url ?? w.url) === "") return res.status(400).json({ success: false, message: "Add a title or link" });
     const doc = await PortalWork.findByIdAndUpdate(w._id, { $set: set }, { new: true }).lean();
     // keep the SEO & Ads Team work log in step
+    if (set.type) {
+      const st = SEO_TYPES[set.type];
+      if (!st && w.seoWork) {
+        // no longer SEO work: take it off the SEO & Ads Team log
+        await SeoWork.deleteMany({ _id: { $in: [w.seoWork, ...(w.seoWorkMore || [])] } });
+        await PortalWork.updateOne({ _id: w._id }, { $unset: { seoWork: 1, seoWorkMore: 1 } });
+        w.seoWork = null; w.seoWorkMore = [];
+      } else if (st && w.seoWork) {
+        await SeoWork.updateMany({ _id: { $in: [w.seoWork, ...(w.seoWorkMore || [])] } }, { $set: { type: st } });
+      } else if (st && !w.seoWork && w.refType === "client" && w.refId && req.portal.seoMember) {
+        const sw = await SeoWork.create({
+          client: w.refId, who: req.portal.seoMember, date: utcDay(doc.date), type: st, url: doc.url, title: doc.title,
+          kw: str(doc.meta?.kw), status: "live", by: req.portal.name,
+        });
+        await PortalWork.updateOne({ _id: w._id }, { $set: { seoWork: sw._id } });
+        doc.seoWork = sw._id;
+      }
+    }
     if (w.seoWork) {
       const s = {};
       if (set.title !== undefined) s.title = set.title;
