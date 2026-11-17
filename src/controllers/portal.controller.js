@@ -289,6 +289,18 @@ export async function deleteWork(req, res) {
 
 /* bugs and designs */
 
+// Each bug's number inside its project: the first bug raised on a project is 1, then 2, 3 ...
+async function withProjectNo(bugs) {
+  if (!bugs.length) return bugs;
+  const refIds = [...new Set(bugs.filter(b => b.refId).map(b => String(b.refId)))];
+  const names = [...new Set(bugs.filter(b => !b.refId).map(b => b.refName || ""))];
+  const all = await PortalWork.find({ type: "bug", $or: [{ refId: { $in: refIds } }, { refId: null, refName: { $in: names } }] })
+    .select("_id refId refName createdAt").sort({ createdAt: 1, _id: 1 }).lean();
+  const seq = {}, no = new Map();
+  for (const b of all) { const k = b.refId ? `i${b.refId}` : `n${b.refName || ""}`; seq[k] = (seq[k] || 0) + 1; no.set(String(b._id), seq[k]); }
+  return bugs.map(b => ({ ...b, no: no.get(String(b._id)) || null }));
+}
+
 // GET /api/portal/bugs → bugs I raised (tester) or bugs assigned to me (developer)
 export async function myBugs(req, res) {
   try {
@@ -296,8 +308,8 @@ export async function myBugs(req, res) {
     // a tester sees the bugs they raised, a developer the bugs given to them (someone with both roles sees both)
     const or = [...(hasRole(me, ["test"]) ? [{ account: me._id }] : []), ...(hasRole(me, ["app", "web", "back", "full", "other", "ux"]) || !hasRole(me, ["test"]) ? [{ "meta.assign": String(me._id) }] : [])];
     const q = { type: "bug", $or: or };
-    const bugs = await PortalWork.find(q).sort({ createdAt: -1 }).limit(300).populate("account", "name").lean();
-    return res.json({ success: true, data: bugs });
+    const bugs = await PortalWork.find(q).sort({ createdAt: -1 }).limit(1000).populate("account", "name").lean();
+    return res.json({ success: true, data: await withProjectNo(bugs) });
   } catch (err) { return fail(res, err, "myBugs"); }
 }
 // GET /api/portal/bugs/activity → what the testers did on my projects: test runs and the other bugs raised
@@ -310,7 +322,7 @@ export async function bugActivity(req, res) {
       PortalWork.find({ type: "test", $or: [{ refId: { $in: ids } }, { account: me._id }] }).sort({ date: -1, createdAt: -1 }).limit(60).populate("account", "name").lean(),
       ids.length ? PortalWork.find({ type: "bug", refId: { $in: ids }, account: { $ne: me._id }, "meta.assign": { $ne: mine } }).sort({ createdAt: -1 }).limit(60).populate("account", "name").lean() : [],
     ]);
-    return res.json({ success: true, data: { tests, bugs } });
+    return res.json({ success: true, data: { tests, bugs: await withProjectNo(bugs) } });
   } catch (err) { return fail(res, err, "bugActivity"); }
 }
 
