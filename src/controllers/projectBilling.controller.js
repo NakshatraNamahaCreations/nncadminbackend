@@ -196,6 +196,7 @@ export function buildSchedule(svc, today = istToday()) {
 
 function serviceView(doc, today = istToday()) {
   const o = typeof doc.toObject === "function" ? doc.toObject() : { ...doc };
+  if (!o.types?.length) o.types = [o.type || "Other"];   // services saved before types existed
   const schedule = buildSchedule(o, today);
   const overdue  = schedule.filter(r => r.status === "overdue");
   const current  = schedule.find(r => r.period === periodOf(today)) || null;
@@ -215,7 +216,14 @@ function serviceView(doc, today = istToday()) {
 function pickService(body) {
   const out = {};
   if (body.name          !== undefined) out.name          = String(body.name || "").trim();
-  if (body.type          !== undefined) out.type          = SERVICE_TYPES.includes(body.type) ? body.type : "Other";
+  if (Array.isArray(body.types)) {
+    const t = [...new Set(body.types.filter(x => SERVICE_TYPES.includes(x)))];
+    out.types = t.length ? t : ["Other"];
+    out.type  = out.types[0];
+  } else if (body.type !== undefined) {
+    out.type  = SERVICE_TYPES.includes(body.type) ? body.type : "Other";
+    out.types = [out.type];
+  }
   if (body.amount        !== undefined) out.amount        = Math.max(0, Number(body.amount) || 0);
   if (body.gstApplicable !== undefined) out.gstApplicable = !!body.gstApplicable;
   if (body.gstRate       !== undefined) out.gstRate       = Math.max(0, Number(body.gstRate) || 0);

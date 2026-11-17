@@ -28,7 +28,8 @@ const RecurringServiceSchema = new mongoose.Schema(
   {
     lead:          { type: mongoose.Schema.Types.ObjectId, ref: "Lead", required: true },
     name:          { type: String, required: true, trim: true },
-    type:          { type: String, enum: SERVICE_TYPES, default: "Other" },
+    type:          { type: String, enum: SERVICE_TYPES, default: "Other" },   // first of types
+    types:         { type: [String], default: [] },                         // e.g. Google Ads + SEO
     amount:        { type: Number, default: 0, min: 0 },   // per month, before GST
     gstApplicable: { type: Boolean, default: false },
     gstRate:       { type: Number, default: 18 },

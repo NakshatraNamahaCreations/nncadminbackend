@@ -62,9 +62,13 @@ export async function getLeadOptions(req, res) {
     // every lead and project (ongoing and completed), newest first
     const leads = await Lead.find().select("name phone email business company requirements projectStage projectCompleted onboardedDate").sort({ createdAt: -1 }).limit(5000).lean();
     const { default: RecurringService } = await import("../models/RecurringService.js");
-    const svcs = await RecurringService.find({ type: { $in: ["SEO", "Google Ads", "Social Media", "Meta Ads"] } }).select("lead type amount endDate").lean();
+    const ST = ["SEO", "Google Ads", "Social Media", "Meta Ads"];
+    const svcs = await RecurringService.find({ $or: [{ type: { $in: ST } }, { types: { $in: ST } }] }).select("lead type types amount endDate").lean();
     const byLead = {};
-    for (const s of svcs) (byLead[String(s.lead)] ||= []).push({ type: s.type, amount: s.amount, active: !s.endDate || new Date(s.endDate) >= new Date() });
+    for (const s of svcs) {
+      const active = !s.endDate || new Date(s.endDate) >= new Date();
+      for (const t of (s.types?.length ? s.types : [s.type]).filter(x => ST.includes(x))) (byLead[String(s.lead)] ||= []).push({ type: t, amount: s.amount, active });
+    }
     return res.json({ success: true, data: leads.map(({ projectStage, projectCompleted, onboardedDate, ...l }) => ({ ...l, project: projectCompleted ? "Completed" : projectStage || (onboardedDate ? "Ongoing" : ""), services: byLead[String(l._id)] || [] })) });
   } catch (err) { return fail(res, err, "seo getLeadOptions"); }
 }
