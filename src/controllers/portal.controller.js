@@ -274,6 +274,41 @@ export async function addWork(req, res) {
   } catch (err) { return fail(res, err, "addWork"); }
 }
 
+// PATCH /api/portal/work/:id → fix a logged entry: title, link, hours, date or keyword
+export async function editWork(req, res) {
+  try {
+    if (!isId(req.params.id)) return res.status(400).json({ success: false, message: "Invalid id" });
+    const w = await PortalWork.findOne({ _id: req.params.id, account: req.portal._id });
+    if (!w) return res.status(404).json({ success: false, message: "Not found" });
+    const b = req.body || {}, set = {};
+    if (b.title !== undefined) set.title = str(b.title);
+    if (b.url !== undefined) set.url = str(b.url);
+    if (b.hrs !== undefined) set.hrs = Math.min(24, Math.max(0, num(b.hrs)));
+    if (b.date !== undefined) {
+      if (!isDay(b.date)) return res.status(400).json({ success: false, message: "Pick a date" });
+      if (b.date > new Date(Date.now() + 330 * 60000).toISOString().slice(0, 10)) return res.status(400).json({ success: false, message: "You cannot log work for a future date" });
+      set.date = b.date;
+    }
+    if (b.kw !== undefined) set["meta.kw"] = str(b.kw);
+    if ((set.title ?? w.title) === "" && (set.url ?? w.url) === "") return res.status(400).json({ success: false, message: "Add a title or link" });
+    const doc = await PortalWork.findByIdAndUpdate(w._id, { $set: set }, { new: true }).lean();
+    // keep the SEO & Ads Team work log in step
+    if (w.seoWork) {
+      const s = {};
+      if (set.title !== undefined) s.title = set.title;
+      if (set.url !== undefined) s.url = set.url;
+      if (set.date) s.date = utcDay(set.date);
+      if (set["meta.kw"] !== undefined) s.kw = set["meta.kw"];
+      if (Object.keys(s).length) await SeoWork.updateOne({ _id: w.seoWork }, { $set: s });
+      const m = {};
+      if (s.title !== undefined) m.title = s.title;
+      if (s.date) m.date = s.date;
+      if (Object.keys(m).length && w.seoWorkMore?.length) await SeoWork.updateMany({ _id: { $in: w.seoWorkMore } }, { $set: m });
+    }
+    return res.json({ success: true, data: doc });
+  } catch (err) { return fail(res, err, "editWork"); }
+}
+
 export async function deleteWork(req, res) {
   try {
     if (!isId(req.params.id)) return res.status(400).json({ success: false, message: "Invalid id" });

@@ -93,6 +93,7 @@ router.get("/my-clients/:id/done", P.myClientDone);
 
 router.get("/work", P.listWork);
 router.post("/work", P.addWork);
+router.patch("/work/:id", P.editWork);
 router.delete("/work/:id", P.deleteWork);
 router.get("/bugs", P.myBugs);
 router.get("/bugs/activity", P.bugActivity);
