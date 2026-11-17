@@ -567,7 +567,7 @@ export async function getPlan(req, res) {
 // POST /api/portal/plans { text, refName } → adds one item to today's plan
 export async function addPlan(req, res) {
   try {
-    const text = str(req.body?.text).slice(0, 300);
+    const text = str(req.body?.text).slice(0, 5000);   // long plans are kept whole
     if (!text) return res.status(400).json({ success: false, message: "Write what you plan to do" });
     const date = istDay();
     const cur = await PortalPlan.findOne({ account: req.portal._id, date }).select("items").lean();
@@ -579,12 +579,22 @@ export async function addPlan(req, res) {
   } catch (err) { return fail(res, err, "addPlan"); }
 }
 // PATCH /api/portal/plans/:item { done } → tick an item of today's plan on or off
+//                                { text, refName } → edit it
 export async function planItem(req, res) {
   try {
     if (!isId(req.params.item)) return res.status(400).json({ success: false, message: "Invalid id" });
-    const done = !!req.body?.done;
+    const b = req.body || {};
+    let set;
+    if (b.text !== undefined) {
+      const text = str(b.text).slice(0, 5000);
+      if (!text) return res.status(400).json({ success: false, message: "Write what you plan to do" });
+      set = { "items.$.text": text, "items.$.refName": str(b.refName).slice(0, 160) };
+    } else {
+      const done = !!b.done;
+      set = { "items.$.done": done, "items.$.doneAt": done ? new Date() : null };
+    }
     const p = await PortalPlan.findOneAndUpdate({ account: req.portal._id, date: istDay(), "items._id": req.params.item },
-      { $set: { "items.$.done": done, "items.$.doneAt": done ? new Date() : null } }, { new: true }).lean();
+      { $set: set }, { new: true }).lean();
     if (!p) return res.status(404).json({ success: false, message: "Only today's plan can be changed" });
     return res.json({ success: true, data: p });
   } catch (err) { return fail(res, err, "planItem"); }
