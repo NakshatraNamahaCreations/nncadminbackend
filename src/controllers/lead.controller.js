@@ -838,6 +838,7 @@ export const createLead = async (req, res) => {
       days: clean(body.days) || "0d",
       gstApplicable: Boolean(body.gstApplicable),
       gstRate: toNum(body.gstRate, 18) || 18,
+      gstNumber: clean(body.gstNumber).toUpperCase(),
       projectStage: PROJECT_STAGES.includes(clean(body.projectStage)) ? clean(body.projectStage) : "",
 
       rep: repInfo.repName || "User",
@@ -1005,6 +1006,7 @@ export const updateLead = async (req, res) => {
 
     if (body.gstApplicable != null) lead.gstApplicable = Boolean(body.gstApplicable);
     if (body.gstRate != null) lead.gstRate = Number(body.gstRate) || 18;
+    if (body.gstNumber != null) lead.gstNumber = clean(body.gstNumber).toUpperCase();
 
     if (body.days != null) lead.days = clean(body.days) || lead.days;
 

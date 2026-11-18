@@ -32,6 +32,7 @@ const RecurringServiceSchema = new mongoose.Schema(
     types:         { type: [String], default: [] },                         // e.g. Google Ads + SEO
     amount:        { type: Number, default: 0, min: 0 },   // per month, before GST
     gstApplicable: { type: Boolean, default: false },
+    gstNumber:     { type: String, default: "", trim: true },
     gstRate:       { type: Number, default: 18 },
     billingDay:    { type: Number, default: 5, min: 1, max: 28 },
     startDate:     { type: Date, required: true },

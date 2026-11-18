@@ -26,6 +26,7 @@ const ProjectExtraSchema = new mongoose.Schema(
     description:   { type: String, default: "", trim: true },
     amount:        { type: Number, default: 0, min: 0 },   // before GST
     gstApplicable: { type: Boolean, default: false },
+    gstNumber:     { type: String, default: "", trim: true },
     gstRate:       { type: Number, default: 18 },
     status:        { type: String, enum: EXTRA_STATUSES, default: "quoted" },
     requestedDate: { type: Date, default: Date.now },

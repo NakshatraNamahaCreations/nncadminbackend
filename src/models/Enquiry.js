@@ -69,6 +69,7 @@ const EnquirySchema = new mongoose.Schema(
     convertedAt:       { type: Date,    default: null },
     landingPage:       { type: String, default: "", trim: true },
     gstApplicable:     { type: Boolean, default: false },
+    gstNumber:         { type: String, default: "", trim: true },
     // false = not yet opened in the CRM (drives the "new" glow + tab badges).
     // Legacy docs without this field are treated as seen.
     seen:              { type: Boolean, default: false },

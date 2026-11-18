@@ -56,6 +56,7 @@ function pickExtra(body) {
   if (body.description   !== undefined) out.description   = String(body.description || "").trim();
   if (body.amount        !== undefined) out.amount        = Math.max(0, Number(body.amount) || 0);
   if (body.gstApplicable !== undefined) out.gstApplicable = !!body.gstApplicable;
+  if (body.gstNumber     !== undefined) out.gstNumber     = String(body.gstNumber || "").trim().toUpperCase();
   if (body.gstRate       !== undefined) out.gstRate       = Math.max(0, Number(body.gstRate) || 0);
   if (body.status        !== undefined && EXTRA_STATUSES.includes(body.status)) out.status = body.status;
   if (body.requestedDate !== undefined) out.requestedDate = toDate(body.requestedDate) || new Date();
@@ -226,6 +227,7 @@ function pickService(body) {
   }
   if (body.amount        !== undefined) out.amount        = Math.max(0, Number(body.amount) || 0);
   if (body.gstApplicable !== undefined) out.gstApplicable = !!body.gstApplicable;
+  if (body.gstNumber     !== undefined) out.gstNumber     = String(body.gstNumber || "").trim().toUpperCase();
   if (body.gstRate       !== undefined) out.gstRate       = Math.max(0, Number(body.gstRate) || 0);
   if (body.billingDay    !== undefined) out.billingDay    = Math.min(28, Math.max(1, parseInt(body.billingDay, 10) || 1));
   if (body.startDate     !== undefined) out.startDate     = toDate(body.startDate);

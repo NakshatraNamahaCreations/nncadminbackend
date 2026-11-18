@@ -14,7 +14,7 @@ function isValidObjectId(id) {
 const ALLOWED_FIELDS = [
   "name", "phone", "email", "company", "services", "source",
   "budgetMin", "budgetMax", "requirements", "branch", "assignedTo",
-  "status", "followUpDate", "landingPage", "gstApplicable", "site",
+  "status", "followUpDate", "landingPage", "gstApplicable", "gstNumber", "site",
 ];
 
 function pickAllowedFields(body) {

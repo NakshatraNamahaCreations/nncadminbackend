@@ -169,6 +169,7 @@ const LeadSchema = new mongoose.Schema(
     projectStartDate: { type: Date, default: null },
     approvalStatus: { type: String, default: "pending", trim: true },
     gstApplicable:  { type: Boolean, default: false },
+    gstNumber:      { type: String, default: "", trim: true },   // client's GSTIN, optional
     gstRate:        { type: Number,  default: 18 },
     momLogs: { type: [MOMSchema], default: [] },
     emailLogs: { type: [EmailLogSchema], default: [] },
