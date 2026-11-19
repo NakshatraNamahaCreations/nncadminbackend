@@ -123,7 +123,8 @@ export async function updateAccount(req, res) {
     if (b.branch !== undefined) acc.branch = str(b.branch);
     if (b.planLead !== undefined) acc.planLead = !!b.planLead;
     await acc.save();
-    const set = { name: acc.name, phone: acc.phone === "-" ? "" : acc.phone };
+    // an inactive login is inactive everywhere: not offered for projects, clients or SEO work
+    const set = { name: acc.name, phone: acc.phone === "-" ? "" : acc.phone, isActive: acc.status !== "disabled" };
     if (acc.developer) await Developer.updateOne({ _id: acc.developer }, { ...set, ...(DEV_ROLE[acc.role] ? { role: DEV_ROLE[acc.role] } : {}) });
     if (acc.seoMember) await SeoMember.updateOne({ _id: acc.seoMember }, { ...set, ...(SEO_ROLE[acc.role] ? { role: SEO_ROLE[acc.role] } : {}) });
     if (acc.status === "active") await ensureLinks(acc.toObject());
