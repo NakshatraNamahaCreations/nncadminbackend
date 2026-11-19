@@ -3,6 +3,7 @@ import PDFDocument from "pdfkit";
 import Employee    from "../models/Employee.js";
 import Attendance  from "../models/Attendance.js";
 import SalaryRecord from "../models/SalaryRecord.js";
+import { addSearch } from "../utils/search.js";
 
 const escapeRegex = (str) => String(str).replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 
@@ -169,15 +170,7 @@ export async function getEmployees(req, res) {
     const filter = {};
     if (branch) filter.branch = branch;
     if (isActive !== undefined) filter.isActive = isActive === "true";
-    if (q && q.trim()) {
-      const regex = new RegExp(escapeRegex(q.trim()), "i");
-      filter.$or = [
-        { name:       regex },
-        { employeeId: regex },
-        { email:      regex },
-        { phone:      regex },
-      ];
-    }
+    if (q && q.trim()) addSearch(filter, q, ["name", "employeeId", "email", "phone", "designation", "department"]);
     const employees = await Employee.find(filter).sort({ employeeId: 1 }).lean();
     return res.json({ success: true, data: employees });
   } catch (err) {

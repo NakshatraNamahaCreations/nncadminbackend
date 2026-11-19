@@ -1,5 +1,6 @@
 import Credential, { encrypt, decrypt } from "../models/Credential.js";
 import mongoose from "mongoose";
+import { addSearch } from "../utils/search.js";
 
 const isValidId = (id) => mongoose.Types.ObjectId.isValid(id);
 
@@ -18,8 +19,7 @@ export const getCredentials = async (req, res) => {
 
     if (q?.trim()) {
       // partial match from the first letters (the text index only matched whole words)
-      const rx = new RegExp(String(q).trim().replace(/[.*+?^${}()|[\]\\]/g, "\\$&"), "i");
-      filter.$or = [{ label: rx }, { username: rx }, { url: rx }, { notes: rx }, { tags: rx }, { category: rx }];
+      addSearch(filter, q, ["label", "username", "url", "notes", "tags", "category"]);
     }
     if (category) filter.category = category;
     if (pinned === "true") filter.pinned = true;

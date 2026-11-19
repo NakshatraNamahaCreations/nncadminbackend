@@ -1,5 +1,6 @@
 import ProformaInvoice from "../models/ProformaInvoice.js";
 import sendEmail       from "../utils/sendEmail.js";
+import { addSearch } from "../utils/search.js";
 
 // GET /api/proforma-invoices
 export async function getProformaInvoices(req, res) {
@@ -8,14 +9,7 @@ export async function getProformaInvoices(req, res) {
     const filter = {};
     if (branch) filter.branch = branch;
     if (status) filter.status = status;
-    if (q?.trim()) {
-      filter.$or = [
-        { clientName:    new RegExp(q.trim(), "i") },
-        { clientPhone:   new RegExp(q.trim(), "i") },
-        { clientCompany: new RegExp(q.trim(), "i") },
-        { proformaNumber: new RegExp(q.trim(), "i") },
-      ];
-    }
+    if (q?.trim()) addSearch(filter, q, ["clientName", "clientPhone", "clientCompany", "proformaNumber"]);
 
     const skip  = (Number(page) - 1) * Number(limit);
     const total = await ProformaInvoice.countDocuments(filter);

@@ -251,7 +251,9 @@ export async function deleteMeetingAdmin(req, res) {
   } catch (err) { return fail(res, err, "deleteMeetingAdmin"); }
 }
 
-// POST /api/portal/admin/tasks { account, title, due, refName }
+const PRI = ["High", "Medium", "Low"];
+const byPri = (a, b) => PRI.indexOf(a.priority || "Medium") - PRI.indexOf(b.priority || "Medium") || String(a.due).localeCompare(String(b.due));
+// POST /api/portal/admin/tasks { account, title, due, refName, priority }
 export async function assignTask(req, res) {
   try {
     const b = req.body || {};
@@ -263,8 +265,9 @@ export async function assignTask(req, res) {
       if (l) { refId = l._id; refName = l.business || l.company ? `${l.name} · ${l.business || l.company}` : l.name; }
       else if (c) { refId = c._id; refName = c.name; }
     }
-    const t = await PortalTask.create({ account: b.account, title: str(b.title), refName, refId, due: b.due, from: req.actorName || "Admin" });
-    await notify(b.account, { kind: "task", title: `New task from ${t.from}`, text: `${t.title}${t.refName ? ` · ${t.refName}` : ""} · due ${t.due}`, link: "/tasks", from: t.from });
+    const priority = PRI.includes(b.priority) ? b.priority : "Medium";
+    const t = await PortalTask.create({ account: b.account, title: str(b.title), refName, refId, due: b.due, priority, from: req.actorName || "Admin" });
+    await notify(b.account, { kind: "task", title: `New ${priority === "High" ? "high priority " : ""}task from ${t.from}`, text: `${t.title}${t.refName ? ` · ${t.refName}` : ""} · due ${t.due}`, link: "/tasks", from: t.from });
     return res.status(201).json({ success: true, data: t });
   } catch (err) { return fail(res, err, "assignTask"); }
 }
@@ -324,8 +327,19 @@ export async function plans(req, res) {
 export async function listTasks(req, res) {
   try {
     const T = await PortalTask.find({ from: { $ne: "me" } }).sort({ due: 1 }).limit(500).populate("account", "name").lean();
-    return res.json({ success: true, data: T });
+    return res.json({ success: true, data: T.sort(byPri) });
   } catch (err) { return fail(res, err, "listTasks"); }
+}
+// PATCH /api/portal/admin/tasks/:id { priority } → change how urgent a task is
+export async function setTaskPriority(req, res) {
+  try {
+    const p = req.body?.priority;
+    if (!isId(req.params.id) || !PRI.includes(p)) return res.status(400).json({ success: false, message: "Pick High, Medium or Low" });
+    const t = await PortalTask.findByIdAndUpdate(req.params.id, { priority: p }, { new: true });
+    if (!t) return res.status(404).json({ success: false, message: "Task not found" });
+    if (t.status !== "done") await notify(t.account, { kind: "task", title: `Task priority changed to ${p}`, text: `${t.title}${t.refName ? ` · ${t.refName}` : ""} · due ${t.due}`, link: "/tasks", from: req.actorName || "Admin" });
+    return res.json({ success: true, data: t });
+  } catch (err) { return fail(res, err, "setTaskPriority"); }
 }
 
 export async function getSettings(req, res) {

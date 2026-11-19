@@ -2,6 +2,7 @@ import Quotation      from "../models/Quotation.js";
 import ProformaInvoice from "../models/ProformaInvoice.js";
 import Enquiry         from "../models/Enquiry.js";
 import sendEmail       from "../utils/sendEmail.js";
+import { addSearch } from "../utils/search.js";
 
 const BRANCHES = ["Bangalore", "Mysore", "Mumbai"];
 
@@ -19,17 +20,7 @@ export async function getQuotations(req, res) {
     const filter = {};
     if (branch) filter.branch = branch;
     if (status) filter.status = status;
-    if (q?.trim()) {
-      // escape special regex chars to avoid ReDoS and slow scans
-      const escaped = q.trim().replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
-      const rx = new RegExp(escaped, "i");
-      filter.$or = [
-        { clientName:    rx },
-        { clientPhone:   rx },
-        { clientCompany: rx },
-        { quoteNumber:   rx },
-      ];
-    }
+    if (q?.trim()) addSearch(filter, q, ["clientName", "clientPhone", "clientCompany", "clientEmail", "quoteNumber"]);
 
     const skip = (Number(page) - 1) * Number(limit);
     const lim  = Math.min(Number(limit), 50);

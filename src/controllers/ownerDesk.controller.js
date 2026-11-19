@@ -1,6 +1,7 @@
 import Lead from "../models/Lead.js";
 import OwnerNote from "../models/OwnerNote.js";
 import mongoose from "mongoose";
+import { addSearch } from "../utils/search.js";
 
 // ─── helpers ────────────────────────────────────────────────
 const daysDiff = (date) => {
@@ -327,10 +328,7 @@ export const leadSearch = async (req, res) => {
   try {
     const { q } = req.query;
     if (!q || q.length < 2) return res.json({ success: true, leads: [] });
-    const regex = new RegExp(q, "i");
-    const leads = await Lead.find({
-      $or: [{ name: regex }, { business: regex }, { company: regex }, { phone: regex }],
-    }).select("name business company phone advanceReceived value").limit(8).lean();
+    const leads = await Lead.find(addSearch({}, q, ["name", "business", "company", "phone", "mobile", "email"])).select("name business company phone advanceReceived value").limit(8).lean();
     return res.json({ success: true, leads });
   } catch (err) {
     return res.status(500).json({ success: false, message: err.message });

@@ -57,6 +57,7 @@ router.get("/admin/docs", adminView, S.adminDocs);
 router.get("/admin/tasks", adminView, A.listTasks);
 router.get("/admin/plans", adminView, A.plans);
 router.post("/admin/tasks", adminEdit, A.assignTask);
+router.patch("/admin/tasks/:id", adminEdit, A.setTaskPriority);
 router.get("/admin/threads", adminView, C.adminThreads);
 router.get("/admin/messages/:account", adminView, C.adminMessages);
 router.post("/admin/messages/:account", adminEdit, C.adminSend);

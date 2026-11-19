@@ -4,6 +4,7 @@ import PaymentRecord from "../models/PaymentRecord.js";
 import Invoice from "../models/Invoice.js";
 import BankAccount from "../models/BankAccount.js";
 import Lead from "../models/Lead.js";
+import { addSearch } from "../utils/search.js";
 
 const isValidObjectId = (id) => mongoose.Types.ObjectId.isValid(id);
 const safeNumber = (v) => { const n = Number(v); return Number.isFinite(n) ? n : 0; };
@@ -262,14 +263,7 @@ export const getInvoicePayments = async (req, res) => {
       if (from) q.invoiceDate.$gte = new Date(from);
       if (to)   q.invoiceDate.$lte = new Date(new Date(to).setHours(23, 59, 59, 999));
     }
-    if (search) {
-      const safe = search.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
-      q.$or = [
-        { clientName:     { $regex: safe, $options: "i" } },
-        { clientBusiness: { $regex: safe, $options: "i" } },
-        { invoiceNumber:  { $regex: safe, $options: "i" } },
-      ];
-    }
+    if (search) addSearch(q, search, ["clientName", "clientBusiness", "clientPhone", "clientEmail", "invoiceNumber"]);
 
     const invoices = await Invoice.find(q)
       .sort({ invoiceDate: -1 })

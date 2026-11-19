@@ -3,6 +3,7 @@ import path from "path";
 import mongoose from "mongoose";
 import Document from "../models/Document.js";
 import Lead from "../models/Lead.js";
+import { addSearch } from "../utils/search.js";
 
 const isValidObjectId = (id) => mongoose.Types.ObjectId.isValid(id);
 
@@ -50,15 +51,7 @@ export const getAllDocuments = async (req, res) => {
 
     if (type && type !== "all") query.type = type;
 
-    if (search && search.trim()) {
-      const safeSearch = escapeRegex(search.trim());
-      query.$or = [
-        { name:             { $regex: safeSearch, $options: "i" } },
-        { linkedLead:       { $regex: safeSearch, $options: "i" } },
-        { notes:            { $regex: safeSearch, $options: "i" } },
-        { originalFileName: { $regex: safeSearch, $options: "i" } },
-      ];
-    }
+    if (search && search.trim()) addSearch(query, search, ["name", "linkedLead", "notes", "originalFileName"]);
 
     const safePage  = Math.max(1, Number(page)  || 1);
     const safeLimit = Math.max(1, Math.min(Number(limit) || 200, 1000));

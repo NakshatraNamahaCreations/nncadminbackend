@@ -2,6 +2,7 @@ import mongoose from "mongoose";
 import Enquiry, { PROPOSAL_STATUSES } from "../models/Enquiry.js";
 import sendEmail from "../utils/sendEmail.js";
 import { sendCustomEmail } from "../services/emailService.js";
+import { addSearch } from "../utils/search.js";
 
 const escapeRegex = (str) => String(str).replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 
@@ -96,15 +97,7 @@ function buildFilter(query) {
     filter.site = site;
   }
 
-  if (q && q.trim()) {
-    const regex = new RegExp(escapeRegex(q.trim()), "i");
-    filter.$or = [
-      { name:    regex },
-      { phone:   regex },
-      { email:   regex },
-      { company: regex },
-    ];
-  }
+  if (q && q.trim()) addSearch(filter, q, ["name", "phone", "email", "company", "requirements", "services", "gstNumber"]);
 
   const dr = dateRangeFilter(dateRange);
   if (dr) filter.createdAt = dr;

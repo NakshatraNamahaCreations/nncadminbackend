@@ -60,6 +60,7 @@ const PortalTaskSchema = new mongoose.Schema(
     refId:   { type: ObjectId, default: null },              // the CRM project (Lead) or SEO client it is for
     due:     { type: String, required: true },         // "YYYY-MM-DD"
     status:  { type: String, enum: ["todo", "doing", "done"], default: "todo" },
+    priority: { type: String, enum: ["High", "Medium", "Low"], default: "Medium" },
     from:    { type: String, default: "me" },          // "me" or the admin's name
     by:      { type: ObjectId, ref: "PortalAccount", default: null },   // the tester or team lead who gave it (null: admin or self)
     doneOn:  { type: String, default: "" },

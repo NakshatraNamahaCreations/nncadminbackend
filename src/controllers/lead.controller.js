@@ -19,6 +19,7 @@ import {
   sendPaymentReceiptEmail,
   sendDocumentRequestEmail,
 } from "../services/emailService.js";
+import { addSearch } from "../utils/search.js";
 
 const STAGES = [
   "Lead Capture",
@@ -586,21 +587,8 @@ export const getLeads = async (req, res) => {
     }
     if (status && status !== "All") filter.status = normalizeStatus(status);
 
-    if (q && clean(q)) {
-      const cleaned = clean(q);
-      // Partial match from the first letters: client name, project / business name, company, email, phone.
-      // (The text index only matched whole words, so "ho" never found "House Of ...".)
-      const rx = new RegExp(escapeRegex(cleaned), "i");
-      const qClause = /^[\d\s+-]+$/.test(cleaned)
-        ? { $or: [{ phone: new RegExp(escapeRegex(cleaned.replace(/\D/g, "")), "i") }, { mobile: new RegExp(escapeRegex(cleaned.replace(/\D/g, "")), "i") }] }
-        : { $or: [{ name: rx }, { business: rx }, { company: rx }, { email: rx }, { phone: rx }] };
-      if (filter.$or) {
-        filter.$and = [{ $or: filter.$or }, qClause];
-        delete filter.$or;
-      } else {
-        Object.assign(filter, qClause);
-      }
-    }
+    // every word typed must match the client name, business, company, email, phone, location or GST number
+    if (q && clean(q)) addSearch(filter, clean(q), ["name", "business", "company", "email", "phone", "mobile", "location", "industry", "gstNumber"]);
 
     const [leads, totalCount] = await Promise.all([
       Lead.find(filter)
@@ -648,35 +636,7 @@ export const exportLeadsCsv = async (req, res) => {
       filter.$or = [{ rep: repName }, { repName: repName }];
     }
 
-    if (q && clean(q)) {
-      const regex = new RegExp(escapeRegex(clean(q)), "i");
-
-      if (filter.$or) {
-        filter.$and = [
-          { $or: filter.$or },
-          {
-            $or: [
-              { name: regex },
-              { phone: regex },
-              { mobile: regex },
-              { business: regex },
-              { company: regex },
-              { email: regex },
-            ],
-          },
-        ];
-        delete filter.$or;
-      } else {
-        filter.$or = [
-          { name: regex },
-          { phone: regex },
-          { mobile: regex },
-          { business: regex },
-          { company: regex },
-          { email: regex },
-        ];
-      }
-    }
+    if (q && clean(q)) addSearch(filter, clean(q), ["name", "business", "company", "email", "phone", "mobile", "location", "industry", "gstNumber"]);
 
     const leads = await Lead.find(filter)
       .select("name phone email business company stage branch repName advanceReceived createdAt notes")

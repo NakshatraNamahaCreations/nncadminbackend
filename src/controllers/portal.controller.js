@@ -557,7 +557,11 @@ export async function designStatus(req, res) {
 /* ───────── tasks, blockers, days ───────── */
 
 export async function listTasks(req, res) {
-  try { return res.json({ success: true, data: await PortalTask.find({ account: req.portal._id }).sort({ due: 1 }).lean() }); }
+  try {
+    // High priority first, then by due date
+    const PRI = ["High", "Medium", "Low"], L = await PortalTask.find({ account: req.portal._id }).sort({ due: 1 }).lean();
+    return res.json({ success: true, data: L.sort((a, b) => PRI.indexOf(a.priority || "Medium") - PRI.indexOf(b.priority || "Medium") || String(a.due).localeCompare(String(b.due))) });
+  }
   catch (err) { return fail(res, err, "listTasks"); }
 }
 export async function addTask(req, res) {

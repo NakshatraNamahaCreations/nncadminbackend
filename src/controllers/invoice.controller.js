@@ -1,5 +1,6 @@
 import Invoice from "../models/Invoice.js";
 import InvoiceConfig from "../models/InvoiceConfig.js";
+import { addSearch } from "../utils/search.js";
 
 const escapeRegex = (str) => String(str).replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 
@@ -138,14 +139,7 @@ export async function getInvoices(req, res) {
     if (type)           q.type = type;
     if (status)         q.status = status;
     if (officeLocation) q.officeLocation = officeLocation;
-    if (search) {
-      const safeSearch = escapeRegex(search);
-      q.$or = [
-        { clientName:     { $regex: safeSearch, $options: "i" } },
-        { clientBusiness: { $regex: safeSearch, $options: "i" } },
-        { invoiceNumber:  { $regex: safeSearch, $options: "i" } },
-      ];
-    }
+    if (search) addSearch(q, search, ["clientName", "clientBusiness", "clientPhone", "clientEmail", "invoiceNumber"]);
     if (from || to) {
       q.invoiceDate = {};
       if (from) q.invoiceDate.$gte = new Date(from);
