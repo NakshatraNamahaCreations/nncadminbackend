@@ -435,7 +435,7 @@ export async function uploadFile(req, res) {
   return res.status(201).json({ success: true, data: { url: `/uploads/docs/${req.file.filename}`, name: req.file.originalname, type: req.file.mimetype, size: req.file.size } });
 }
 
-// POST /api/portal/bugs/batch { refId, assign, items: [{ title, steps, sev, mod, mins, url, files }] }
+// POST /api/portal/bugs/batch { refId, assign, items: [{ title, desc, steps, exp, sev, mod, mins, url, files }] }
 // A tester sends many bugs to one developer at once; the developer gets one notification
 export async function sendBugs(req, res) {
   try {
@@ -460,6 +460,8 @@ export async function sendBugs(req, res) {
         meta: {
           bug: `BUG-${++n}`, status: "open", sev: ["High", "Medium", "Low"].includes(it.sev) ? it.sev : "Medium",
           mod: str(it.mod), steps: str(it.steps).slice(0, 3000), mins, files: cleanFiles(it.files),
+          // the testers' format: Issue Description, Test Steps, Expected Result
+          desc: str(it.desc).slice(0, 3000), exp: str(it.exp).slice(0, 3000),
           assign: String(dev._id), assignName: dev.name, comments: [],
         },
       };
@@ -643,7 +645,11 @@ export async function submitDay(req, res) {
     // Submitting today also checks the employee out, if they are still checked in
     const att = await PortalAttendance.findOne({ account: req.portal._id, date });
     const open = att?.sessions.find(x => !x.out);
-    if (open) { open.out = new Date(); att.markModified("sessions"); await att.save(); }
+    if (open) {
+      open.out = new Date(); att.markModified("sessions"); await att.save();
+      // the CRM attendance gets the check out time too (it was left empty before)
+      try { await syncFromPortal(req.portal, date, att.sessions); } catch (e) { console.error("attendance sync:", e.message); }
+    }
     return res.json({ success: true, data: d, attendance: att });
   } catch (err) { return fail(res, err, "submitDay"); }
 }
