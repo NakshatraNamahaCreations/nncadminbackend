@@ -7,7 +7,7 @@ import Developer from "../models/Developer.js";
 import Lead from "../models/Lead.js";
 import { signPortalToken, forgetPortal } from "../middleware/portalAuth.js";
 import { notify } from "../models/Portal.js";
-import { syncFromPortal } from "./attendance.controller.js";
+import { syncFromPortal, crmOffDays } from "./attendance.controller.js";
 import { notifyProjectTeam } from "./portalComms.controller.js";
 
 const isId = (v) => mongoose.Types.ObjectId.isValid(v);
@@ -206,11 +206,14 @@ export async function listWork(req, res) {
   try {
     const q = { account: req.portal._id };
     if (isDay(req.query.from) || isDay(req.query.to)) { q.date = {}; if (isDay(req.query.from)) q.date.$gte = req.query.from; if (isDay(req.query.to)) q.date.$lte = req.query.to; }
-    const [work, days] = await Promise.all([
+    const [work, days, off] = await Promise.all([
       PortalWork.find(q).sort({ date: -1, createdAt: -1 }).limit(2000).lean(),
       PortalDay.find({ account: req.portal._id, ...(q.date ? { date: q.date } : {}) }).lean(),
+      // leave and holidays the admin marked in the CRM: not "missing" days
+      crmOffDays(req.portal, isDay(req.query.from) ? req.query.from : new Date(Date.now() - 70 * 864e5).toISOString().slice(0, 10),
+        isDay(req.query.to) ? req.query.to : new Date().toISOString().slice(0, 10)).catch(() => []),
     ]);
-    return res.json({ success: true, data: { work, days } });
+    return res.json({ success: true, data: { work, days, off } });
   } catch (err) { return fail(res, err, "listWork"); }
 }
 

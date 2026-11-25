@@ -134,6 +134,14 @@ async function employeeFor(acc) {
     || L.find(e => nameKey(e.name) && nameKey(e.name) === nameKey(acc.name))
     || null;
 }
+// Days the admin marked as leave, holiday, absent or half day in the CRM, for the portal's week view
+export async function crmOffDays(acc, from, to) {
+  const emp = await employeeFor(acc);
+  if (!emp) return [];
+  const L = await Attendance.find({ employeeId: emp._id, date: { $gte: toUTCMidnight(from), $lte: toUTCMidnight(to) }, status: { $in: ["leave", "holiday", "absent", "half-day"] } })
+    .select("date status leaveType").lean();
+  return L.map(a => ({ date: new Date(a.date).toISOString().slice(0, 10), status: a.status, leaveType: a.leaveType || "" }));
+}
 // sessions: [{ in, out }] real times. Leave or holiday the admin marked is never changed.
 export async function syncFromPortal(acc, dateStr, sessions) {
   const L = (sessions || []).filter(s => s?.in);
