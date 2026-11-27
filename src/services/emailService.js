@@ -16,7 +16,7 @@ const createTransporter = () =>
 /* ─────────────────────────────────────────────────────────────
    Brand constants
 ───────────────────────────────────────────────────────────── */
-const BACKEND_URL   = process.env.BACKEND_URL || "https://api.nakshatranamahacreations.com";
+const BACKEND_URL   = process.env.BACKEND_URL || "https://api.nakshatranamahacreations.co.in";
 const LOGO_URL      = `${BACKEND_URL}/uploads/nnclogo.png`;
 const BRAND_NAME    = "Nakshatra Namaha Creations Pvt. Ltd.";
 const BRAND_SHORT   = "NNC";

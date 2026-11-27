@@ -138,7 +138,7 @@ router.post("/", async (req, res) => {
 
     /* ── Email to admin (fire-and-forget) ─────────────────── */
     const adminEmail   = process.env.ADMIN_NOTIFY_EMAIL || process.env.EMAIL_USER;
-    const frontendUrl  = process.env.FRONTEND_URL || "https://admincrm.nakshatranamahacreations.com";
+    const frontendUrl  = process.env.FRONTEND_URL || "https://admin.nakshatranamahacreations.co.in";
 
     if (adminEmail) {
       sendEmail({
