@@ -78,6 +78,8 @@ app.use(compression({ level: 6, threshold: 1024 }));
 /* ─── CORS ─────────────────────────────────────────────────── */
 const allowedOrigins = [
   "https://admin.nakshatranamahacreations.co.in",
+  "https://api.nakshatranamahacreations.co.in",
+  "https://employee.nakshatranamahacreations.co.in",
   "https://nakshatranamahacreations.com",
   "https://www.nakshatranamahacreations.com",
   "https://nncdigital.co.in",
